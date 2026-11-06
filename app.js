@@ -1112,8 +1112,10 @@
   }
 
   // Initialize App
+  const APP_VERSION = 'v1.1 (Vätske- & Maxdosfix)';
+
   function init() {
-    headerStats.textContent = `${MEDS.length} instruktioner • Barn & Ungdom Skåne`;
+    headerStats.textContent = `${MEDS.length} instruktioner • ${APP_VERSION}`;
     setWeight(state.weightKg, true);
     renderMedList();
 
