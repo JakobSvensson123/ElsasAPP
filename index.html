@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b4f9c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>ePed Skåne – Barnläkemedel & Dosräknare</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Built-in PIN Lock Screen -->
+  <div id="pinLockOverlay" class="pin-lock-overlay" role="dialog" aria-modal="true" aria-labelledby="pinLockTitle">
+    <div class="pin-lock-card">
+      <img src="icon-192.png" alt="ePed Skåne" class="pin-lock-logo" />
+      <h1 id="pinLockTitle" class="pin-lock-title">ePed Region Skåne</h1>
+      <p class="pin-lock-subtitle">Ange PIN-kod för att öppna appen</p>
+
+      <div class="pin-dots" id="pinDotsContainer" aria-live="polite">
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+      </div>
+      <div id="pinErrorMsg" class="pin-error-msg hidden">Fel PIN-kod, försök igen</div>
+
+      <div class="pin-keypad" role="group" aria-label="Knappsats för PIN-kod">
+        <button type="button" class="pin-key" data-digit="1">1</button>
+        <button type="button" class="pin-key" data-digit="2">2</button>
+        <button type="button" class="pin-key" data-digit="3">3</button>
+        <button type="button" class="pin-key" data-digit="4">4</button>
+        <button type="button" class="pin-key" data-digit="5">5</button>
+        <button type="button" class="pin-key" data-digit="6">6</button>
+        <button type="button" class="pin-key" data-digit="7">7</button>
+        <button type="button" class="pin-key" data-digit="8">8</button>
+        <button type="button" class="pin-key" data-digit="9">9</button>
+        <button type="button" class="pin-key pin-key-action" id="pinClearBtn">Rensa</button>
+        <button type="button" class="pin-key" data-digit="0">0</button>
+        <button type="button" class="pin-key pin-key-action" id="pinBackspaceBtn" aria-label="Sudda">⌫</button>
+      </div>
+
+      <label class="pin-remember-label">
+        <input type="checkbox" id="pinRememberCheck" checked />
+        <span>Kom ihåg mig på denna telefon</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-group" id="homeLogoBtn" role="button" tabindex="0" title="Tillbaka till läkemedelslistan">
+        <img src="icon.svg" alt="ePed Skåne" class="brand-icon" />
+        <div>
+          <div class="brand-title">ePed Region Skåne</div>
+          <div class="brand-subtitle" id="headerStats">Laddar 943 instruktioner...</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="installAppBtn" class="btn-header btn-install hidden" type="button">
+          📲 Installera
+        </button>
+        <button id="phoneGuideBtn" class="btn-header" type="button" title="Öppna på telefon / Installera">
+          📱 På telefonen
+        </button>
+        <button id="lockAppBtn" class="btn-header" type="button" title="Lås appen">
+          🔒 Lås
+        </button>
+      </div>
+    </div>
+
+    <!-- Sticky Child Weight Bar (Always accessible!) -->
+    <div class="weight-bar">
+      <div class="weight-bar-main">
+        <label for="childWeightInput" class="weight-label">
+          <span class="weight-icon">⚖️</span>
+          <span>Barnets vikt:</span>
+        </label>
+        <div class="weight-input-group">
+          <button type="button" class="weight-step-btn" id="weightMinusBtn" aria-label="Minska vikt">−</button>
+          <div class="weight-field-wrap">
+            <input
+              type="text"
+              inputmode="decimal"
+              id="childWeightInput"
+              class="weight-input"
+              placeholder="t.ex. 12,5"
+              value="12"
+              autocomplete="off"
+            />
+            <span class="weight-unit">kg</span>
+          </div>
+          <button type="button" class="weight-step-btn" id="weightPlusBtn" aria-label="Öka vikt">+</button>
+        </div>
+        <div class="weight-badge" id="activeWeightBadge">12 kg</div>
+      </div>
+
+      <!-- Quick Weight Chips -->
+      <div class="weight-chips" aria-label="Snabbval för vikt">
+        <button type="button" class="weight-chip" data-weight="1">1 kg</button>
+        <button type="button" class="weight-chip" data-weight="3.5">3,5 kg</button>
+        <button type="button" class="weight-chip" data-weight="5">5 kg</button>
+        <button type="button" class="weight-chip" data-weight="8">8 kg</button>
+        <button type="button" class="weight-chip" data-weight="10">10 kg</button>
+        <button type="button" class="weight-chip active" data-weight="12">12 kg</button>
+        <button type="button" class="weight-chip" data-weight="15">15 kg</button>
+        <button type="button" class="weight-chip" data-weight="20">20 kg</button>
+        <button type="button" class="weight-chip" data-weight="30">30 kg</button>
+        <button type="button" class="weight-chip" data-weight="50">50 kg</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace Layout (Responsive Split on Desktop, Single View on Mobile) -->
+  <main class="app-main">
+    <!-- Left / List View: Search & Browse 943 Medications -->
+    <section class="panel-list" id="listViewSection">
+      <div class="search-box-container">
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            type="search"
+            id="medSearchInput"
+            class="search-input"
+            placeholder="Sök substans, läkemedel (ex Alvedon, Ipren, Spektramox)..."
+            autocomplete="off"
+          />
+          <button type="button" id="clearSearchBtn" class="clear-search-btn hidden" aria-label="Rensa sökning">✕</button>
+        </div>
+
+        <!-- Route Filter Pills -->
+        <div class="filter-pills" id="routeFilterContainer">
+          <button type="button" class="filter-pill active" data-route="ALL">Alla (943)</button>
+          <button type="button" class="filter-pill" data-route="FAV">⭐ Favoriter</button>
+          <button type="button" class="filter-pill" data-route="CALC">🧮 Med vikt-dos</button>
+          <button type="button" class="filter-pill" data-route="Oralt">💧 Oralt</button>
+          <button type="button" class="filter-pill" data-route="Intravenöst / Inj">💉 IV / Inj</button>
+          <button type="button" class="filter-pill" data-route="Rektalt">Rektalt</button>
+          <button type="button" class="filter-pill" data-route="Inhalation">Inhalation</button>
+        </div>
+      </div>
+
+      <div class="list-status-bar">
+        <span id="listCountText">Visar 943 läkemedel</span>
+        <a href="https://eped.se/backup/eped/lists/7476950922805723811.html" target="_blank" rel="noopener" class="eped-source-link">
+          Källa: ePed Skåne ↗
+        </a>
+      </div>
+
+      <div class="med-list" id="medListContainer" role="listbox" aria-label="Läkemedelsinstruktioner">
+        <!-- Populated dynamically by app.js -->
+      </div>
+    </section>
+
+    <!-- Right / Detail & Dose Calculator View -->
+    <section class="panel-detail" id="detailViewSection">
+      <div id="emptyDetailState" class="empty-detail-state">
+        <div class="empty-icon">🩺</div>
+        <h2>Välj ett läkemedel i listan</h2>
+        <p>Ange barnets vikt högst upp och välj läkemedel för att direkt räkna ut exakt dos (mg/mikrog/E) och volym (mL) enligt Region Skånes ePed-instruktioner.</p>
+      </div>
+
+      <div id="medDetailContent" class="med-detail-content hidden">
+        <!-- Mobile Back Button -->
+        <div class="mobile-back-bar">
+          <button type="button" id="backToListBtn" class="btn-back">
+            ← Tillbaka till sök & lista
+          </button>
+          <a id="mobileQuickPdfBtn" href="#" target="_blank" rel="noopener" class="btn-pdf-small">
+            📄 Original-PDF ↗
+          </a>
+        </div>
+
+        <!-- Medication Header Card -->
+        <div class="med-hero-card">
+          <div class="med-hero-top">
+            <div class="med-badges" id="detailBadges"></div>
+            <button type="button" id="toggleFavDetailBtn" class="btn-fav-detail" title="Spara som favorit">☆</button>
+          </div>
+          <h1 class="med-detail-title" id="detailTitle">Läkemedelsnamn</h1>
+          <div class="med-detail-meta" id="detailMeta"></div>
+
+          <div class="med-hero-actions">
+            <a id="detailPdfLink" href="#" target="_blank" rel="noopener" class="btn-primary-pdf">
+              📄 Öppna Region Skånes original-PDF (eped.se) ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Top Warnings (if present in PDF) -->
+        <div id="detailWarningsBox" class="warning-banner hidden"></div>
+
+        <!-- Automatic Dose Calculation Section -->
+        <div class="calc-section-card">
+          <div class="calc-section-header">
+            <div>
+              <h2 class="calc-section-title">
+                🧮 Automatisk Dosuträkning
+              </h2>
+              <p class="calc-section-sub" id="calcWeightSubtitle">
+                Beräknat för barnets vikt: <strong>12 kg</strong>
+              </p>
+            </div>
+            <div class="conc-pill" id="detailConcPill">24 mg/mL</div>
+          </div>
+
+          <!-- Calculator Mode Tabs -->
+          <div class="calc-tabs">
+            <button type="button" class="calc-tab active" data-tab="indications">
+              1. Enligt indikation
+            </button>
+            <button type="button" class="calc-tab" data-tab="rimlig" id="tabBtnRimlig">
+              2. Rimlig dos-tabell
+            </button>
+            <button type="button" class="calc-tab" data-tab="custom">
+              3. Fri kalkylator
+            </button>
+          </div>
+
+          <!-- Tab 1: Automatic Dosing per Indication -->
+          <div class="calc-tab-panel" id="tabPanelIndications">
+            <div id="indicationsCalcContainer"></div>
+          </div>
+
+          <!-- Tab 2: Rimlig Dos Table with Live Child Weight Column -->
+          <div class="calc-tab-panel hidden" id="tabPanelRimlig">
+            <div id="rimligDosContainer"></div>
+          </div>
+
+          <!-- Tab 3: Custom / Manual Dose Calculator -->
+          <div class="calc-tab-panel hidden" id="tabPanelCustom">
+            <div class="custom-calc-box">
+              <p class="custom-calc-help">
+                Räkna ut valfri dosering (t.ex. vid specifik läkarordination). Styrkan fylls i automatiskt från vald instruktion men kan ändras.
+              </p>
+              <div class="custom-calc-grid">
+                <div class="form-group">
+                  <label for="customDoseInput">Ordinerad dos per kg</label>
+                  <div class="input-with-select">
+                    <input type="text" inputmode="decimal" id="customDoseInput" value="15" placeholder="t.ex. 15" />
+                    <select id="customDoseUnit">
+                      <option value="mg/kg">mg/kg</option>
+                      <option value="mikrog/kg">mikrog/kg</option>
+                      <option value="E/kg">E/kg</option>
+                      <option value="IE/kg">IE/kg</option>
+                      <option value="mmol/kg">mmol/kg</option>
+                      <option value="mL/kg">mL/kg</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="customFreqSelect">Doseringstillfällen / dygn</label>
+                  <select id="customFreqSelect">
+                    <option value="1">x 1 (1 gång/dygn)</option>
+                    <option value="2">x 2 (var 12:e timme)</option>
+                    <option value="3">x 3 (var 8:e timme)</option>
+                    <option value="4" selected>x 4 (var 6:e timme)</option>
+                    <option value="6">x 6 (var 4:e timme)</option>
+                    <option value="8">x 8 (var 3:e timme)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="customConcInput">Styrka / Koncentration</label>
+                  <div class="input-with-select">
+                    <input type="text" inputmode="decimal" id="customConcInput" placeholder="t.ex. 24" />
+                    <select id="customConcUnit">
+                      <option value="mg/mL">mg/mL (flytande/inj)</option>
+                      <option value="mikrog/mL">mikrog/mL</option>
+                      <option value="E/mL">E/mL</option>
+                      <option value="IE/mL">IE/mL</option>
+                      <option value="mmol/mL">mmol/mL</option>
+                      <option value="mg">mg per tablett/dos</option>
+                      <option value="mikrog">mikrog per tablett/dos</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Preset Rate Buttons from the PDF -->
+              <div id="customQuickRates" class="custom-quick-rates"></div>
+
+              <!-- Live Result Box -->
+              <div id="customCalcResult" class="custom-calc-result"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full ePed Instruction Details Accordion / Cards -->
+        <div class="info-cards-stack">
+          <div class="info-card" id="cardAppliesTo">
+            <h3>📌 Instruktionen gäller för</h3>
+            <div class="info-card-body" id="bodyAppliesTo"></div>
+          </div>
+
+          <div class="info-card" id="cardDilution">
+            <h3>🧪 Spädning & Beredning</h3>
+            <div class="info-card-body" id="bodyDilution"></div>
+          </div>
+
+          <div class="info-card" id="cardAdministration">
+            <h3>💧 Administrering</h3>
+            <div class="info-card-body" id="bodyAdministration"></div>
+          </div>
+
+          <div class="info-card" id="cardStability">
+            <h3>❄️ Hållbarhet och förvaring</h3>
+            <div class="info-card-body" id="bodyStability"></div>
+          </div>
+
+          <div class="info-card" id="cardOtherInfo">
+            <h3>ℹ️ Övrig information</h3>
+            <div class="info-card-body" id="bodyOtherInfo"></div>
+          </div>
+        </div>
+
+        <!-- Safety Disclaimer Footer -->
+        <div class="safety-disclaimer">
+          <strong>⚠️ Kliniskt beslutsstöd – Kontrollera alltid mot original-PDF:</strong>
+          Dosuträkningen är ett hjälpmedel baserat på ePed Region Skånes publicerade PDF-instruktioner. Kontrollera alltid rimlighet, åldersgränser, spädning och maxdoser mot <a id="footerPdfLink" href="#" target="_blank" rel="noopener">originalinstruktionen på eped.se ↗</a> innan administrering.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal: How to open/install on Elsa's Samsung Phone -->
+  <div id="phoneGuideModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modalTitle">📱 Ha appen på Elsas Samsung-telefon</h2>
+        <button type="button" id="closeModalBtn" class="modal-close-btn" aria-label="Stäng">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="guide-step highlight-step">
+          <div class="step-badge">Sätt 1 – Enklast (Via telefonens webbläsare + App-ikon)</div>
+          <p>
+            Eftersom appen är byggd som en <strong>Progressive Web App (PWA)</strong> behöver Elsa inte gå via Google Play! Hon öppnar bara webblänken i <strong>Chrome</strong> eller <strong>Samsung Internet</strong> på sin telefon:
+          </p>
+          <ol class="guide-list">
+            <li>Öppna webblänken i <strong>Chrome</strong> eller <strong>Samsung Internet</strong> på hennes Samsung-telefon.</li>
+            <li>Tryck på knappen <strong>"📲 Installera"</strong> högst upp i appen (eller menyknappen <strong>⋮</strong> → <strong>"Lägg till på hemskärmen" / "Installera app"</strong>).</li>
+            <li>Nu ligger <strong>ePed Skåne</strong> som en riktig app-ikon på hennes hemskärm och fungerar även offline!</li>
+          </ol>
+        </div>
+
+        <div class="guide-step">
+          <div class="step-badge">Testa direkt nu på samma Wi-Fi</div>
+          <p>Om hennes telefon är på samma Wi-Fi som datorn kan hon skanna QR-koden eller skriva in adressen nedan i telefonens webbläsare:</p>
+          <div id="localUrlBox" class="url-copy-box">Laddar nätverksadress...</div>
+          <div id="qrCodeContainer" class="qr-container"></div>
+        </div>
+
+        <div class="guide-step">
+          <div class="step-badge">Sätt 2 – Gör så att hon når den överallt (4G/5G på jobbet)</div>
+          <p>
+            För att hon ska komma åt appen överallt (även utanför hemma-WiFi) kan ni lägga upp mappen gratis på internet på 30 sekunder:
+          </p>
+          <ul class="guide-list">
+            <li><strong>Alternativ A (Utan konto/kod – 30 sek):</strong> Gå till <a href="https://app.netlify.com/drop" target="_blank" rel="noopener">app.netlify.com/drop</a> och dra in mappen <code>Elsa App</code> (eller <code>dist</code>-mappen). Ni får direkt en permanent <code>https://...netlify.app</code>-länk att skicka till Elsa på SMS/WhatsApp!</li>
+            <li><strong>Alternativ B (GitHub Pages):</strong> Pusha detta projekt till GitHub och aktivera GitHub Pages – gratis för alltid.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Region Skåne ePed Database (943 instructions) -->
+  <script src="data/eped_skane_data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

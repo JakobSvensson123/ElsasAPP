@@ -1,0 +1,14 @@
+# Python virtual environment & caches
+.venv/
+__pycache__/
+*.pyc
+.cache_pdfs/
+
+# Manual deploy artifacts (not needed with GitHub + Netlify)
+deploy_drop/
+deploy_drop.zip
+ePed_Skane_Fristaende.html
+
+# OS / Editor files
+.DS_Store
+Thumbs.db

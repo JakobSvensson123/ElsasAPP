@@ -1,0 +1,45 @@
+{
+  "id": "./index.html",
+  "name": "ePed Skåne – Barnläkemedel & Doskalkylator",
+  "short_name": "ePed Skåne",
+  "description": "Alla 943 barnläkemedelsinstruktioner från ePed Region Skåne med automatisk vikt- och dosuträkning.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0b4f9c",
+  "orientation": "portrait-primary",
+  "lang": "sv-SE",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
