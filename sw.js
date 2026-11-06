@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eped-skane-v3';
+const CACHE_NAME = 'eped-skane-v4';
 const ASSETS = [
   './',
   './index.html',

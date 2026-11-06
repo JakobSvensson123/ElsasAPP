@@ -338,6 +338,66 @@
   function calculateRegimenForWeight(reg, weightKg, med) {
     if (!weightKg || weightKg <= 0) return null;
 
+    // Special handling for Holliday and Segar maintenance fluid formula
+    if (reg.calcType === 'holliday_segar') {
+      let rawDayMl = 0;
+      let formulaBreakdown = '';
+      if (weightKg <= 10) {
+        rawDayMl = weightKg * 100;
+        formulaBreakdown = `${fmtNum(weightKg)} kg × 100 mL/kg = ${fmtNum(rawDayMl)} mL/dygn`;
+      } else if (weightKg <= 20) {
+        const extraKg = weightKg - 10;
+        rawDayMl = 1000 + extraKg * 50;
+        formulaBreakdown = `1000 mL (för 0–10 kg) + 50 mL × ${fmtNum(extraKg)} kg (kg över 10) = ${fmtNum(rawDayMl)} mL/dygn`;
+      } else {
+        const extraKg = weightKg - 20;
+        rawDayMl = 1500 + extraKg * 20;
+        formulaBreakdown = `1500 mL (för 0–20 kg) + 20 mL × ${fmtNum(extraKg)} kg (kg över 20) = ${fmtNum(rawDayMl)} mL/dygn`;
+      }
+
+      const girlMax = reg.maxDayGirlVal || 2000;
+      const boyMax = reg.maxDayBoyVal || 2500;
+      let capped = false;
+      let maxNote = '';
+      let perDayMin = rawDayMl;
+      let perDayMax = rawDayMl;
+
+      if (rawDayMl > boyMax) {
+        capped = true;
+        perDayMin = girlMax;
+        perDayMax = boyMax;
+        maxNote = `Max dygnsvolym: Flickor ${fmtNum(girlMax)} mL/dygn, Pojkar ${fmtNum(boyMax)} mL/dygn`;
+      } else if (rawDayMl > girlMax) {
+        capped = true;
+        perDayMin = girlMax;
+        perDayMax = rawDayMl;
+        maxNote = `Flickor max ${fmtNum(girlMax)} mL/dygn (Pojkar ${fmtNum(rawDayMl)} mL/dygn, max ${fmtNum(boyMax)} mL/dygn)`;
+      }
+
+      const hourlyMin = perDayMin / 24;
+      const hourlyMax = perDayMax / 24;
+
+      return {
+        isHollidaySegar: true,
+        perDoseMin: null,
+        perDoseMax: null,
+        perDayMin,
+        perDayMax,
+        hourlyMin,
+        hourlyMax,
+        adhMin: perDayMin * 0.5,
+        adhMax: perDayMax * 0.8,
+        volMin: null,
+        volMax: null,
+        volUnitLabel: 'mL/dygn',
+        concUsed: null,
+        massUnit: 'mL',
+        capped,
+        maxNote,
+        customFormulaText: formulaBreakdown,
+      };
+    }
+
     const massUnit = reg.massUnit || 'mg';
     let rawMin = reg.doseMin * weightKg;
     let rawMax = reg.doseMax * weightKg;
@@ -391,6 +451,11 @@
         cappedByMaxDay = true;
         perDayMax = dayCapInUnit;
         if (perDayMin > dayCapInUnit) perDayMin = dayCapInUnit;
+        if (fMin && fMin > 0 && perDoseMax !== null) {
+          const maxSingleFromDay = dayCapInUnit / fMin;
+          if (perDoseMax > maxSingleFromDay) perDoseMax = maxSingleFromDay;
+          if (perDoseMin > maxSingleFromDay) perDoseMin = maxSingleFromDay;
+        }
         maxNote = maxNote
           ? `${maxNote} • Max dygnsdos: ${fmtNum(reg.maxDayVal)} ${reg.maxDayUnit}`
           : `Max dygnsdos: ${fmtNum(reg.maxDayVal)} ${reg.maxDayUnit}`;
@@ -437,6 +502,7 @@
     }
 
     return {
+      isHollidaySegar: false,
       perDoseMin,
       perDoseMax,
       perDayMin,
@@ -448,6 +514,7 @@
       massUnit,
       capped: cappedByMaxDose || cappedByMaxDay,
       maxNote,
+      customFormulaText: null,
     };
   }
 
@@ -484,6 +551,41 @@
                   const res = calculateRegimenForWeight(reg, w, med);
                   if (!res) return '';
 
+                  if (res.isHollidaySegar) {
+                    const mainDoseValue = formatRange(res.perDayMin, res.perDayMax, 'mL/dygn');
+                    const hourlyValue = formatRange(res.hourlyMin, res.hourlyMax, 'mL/tim');
+                    const adhValue = formatRange(res.adhMin, res.adhMax, 'mL/dygn');
+                    return `
+                      <div class="dose-result-card ${res.capped ? 'capped' : ''}">
+                        <div class="dose-result-label">
+                          💧 ${escapeHtml(reg.label)}
+                        </div>
+                        <div class="dose-numbers-row">
+                          <div class="dose-big-box vol-box">
+                            <div class="dose-big-caption">Underhållsvätska (100 %)</div>
+                            <div class="dose-big-value">${escapeHtml(mainDoseValue)}</div>
+                          </div>
+                          <div class="dose-big-box">
+                            <div class="dose-big-caption">Infusionshastighet (dygn ÷ 24 tim)</div>
+                            <div class="dose-big-value">${escapeHtml(hourlyValue)}</div>
+                          </div>
+                          <div class="dose-big-box">
+                            <div class="dose-big-caption">Vid ADH-påslag (50 – 80 %)</div>
+                            <div class="dose-big-value">${escapeHtml(adhValue)}</div>
+                          </div>
+                        </div>
+                        ${
+                          res.capped
+                            ? `<div class="max-warning-pill">⚠️ Maxvolym tillämpad (${escapeHtml(res.maxNote)})</div>`
+                            : ''
+                        }
+                        <div class="dose-formula-line">
+                          Holliday & Segar (${fmtNum(w)} kg): ${escapeHtml(res.customFormulaText)}
+                        </div>
+                      </div>
+                    `;
+                  }
+
                   const rateStr =
                     reg.doseMin === reg.doseMax
                       ? `${fmtNum(reg.doseMin)} ${reg.unit}`
@@ -507,8 +609,8 @@
                       : formatRange(res.perDayMin, res.perDayMax, `${res.massUnit}/dygn`);
 
                   const formulaText = `${fmtNum(w)} kg × ${rateStr}${
-                    res.concUsed ? ` ÷ ${res.concUsed}` : ''
-                  }`;
+                    res.capped ? ` → Begränsad till maxdos (${res.maxNote})` : ''
+                  }${res.concUsed ? ` ÷ ${res.concUsed}` : ''}`;
 
                   return `
                     <div class="dose-result-card ${res.capped ? 'capped' : ''}">
@@ -596,17 +698,25 @@
         let childCellText = '–';
         if (w && row.rateVal) {
           const massUnit = (row.rateUnit || 'mg/kg').split('/')[0];
-          const doseAmount = row.rateVal * w;
+          let doseAmount = row.rateVal * w;
+          let capped = false;
+          if (row.maxVal && row.maxUnit) {
+            const capInUnit = convertMass(row.maxVal, row.maxUnit, massUnit) ?? row.maxVal;
+            if (capInUnit && doseAmount > capInUnit) {
+              doseAmount = capInUnit;
+              capped = true;
+            }
+          }
           let volStr = '';
           if (med.isLiquid && med.concValue && med.concUnit) {
             const baseConcUnit = med.concUnit.replace('/mL', '');
             const concInUnit = convertMass(med.concValue, baseConcUnit, massUnit) ?? med.concValue;
             if (concInUnit > 0) {
               const ml = doseAmount / concInUnit;
-              volStr = `<strong>${fmtNum(ml, 2)} mL</strong> <span style="font-size:0.76rem;opacity:0.85;">(${fmtNum(doseAmount)} ${massUnit})</span>`;
+              volStr = `<strong>${fmtNum(ml, 2)} mL</strong> <span style="font-size:0.76rem;opacity:0.85;">(${fmtNum(doseAmount)} ${massUnit}${capped ? ' • max' : ''})</span>`;
             }
           }
-          childCellText = volStr || `<strong>${fmtNum(doseAmount)} ${escapeHtml(massUnit)}</strong>`;
+          childCellText = volStr || `<strong>${fmtNum(doseAmount)} ${escapeHtml(massUnit)}${capped ? ' (max)' : ''}</strong>`;
         } else if (row.label.toLowerCase().includes('max') || row.label.toLowerCase().includes('gram')) {
           childCellText = escapeHtml(row.kg50 !== '-' ? row.kg50 : row.kg10);
         }
