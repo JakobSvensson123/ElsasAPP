@@ -81,12 +81,7 @@
   const cardOtherInfo = document.getElementById('cardOtherInfo');
   const bodyOtherInfo = document.getElementById('bodyOtherInfo');
 
-  const installAppBtn = document.getElementById('installAppBtn');
-  const phoneGuideBtn = document.getElementById('phoneGuideBtn');
   const lockAppBtn = document.getElementById('lockAppBtn');
-  const phoneGuideModal = document.getElementById('phoneGuideModal');
-  const closeModalBtn = document.getElementById('closeModalBtn');
-  const localUrlBox = document.getElementById('localUrlBox');
 
   // PIN Lock Elements & Logic (PIN: 1234)
   const APP_PIN = '1234';
@@ -1396,40 +1391,7 @@
     el.addEventListener('change', updateCustomCalculatorResult);
   });
 
-  // Phone Guide Modal & PWA Install
-  phoneGuideBtn.addEventListener('click', () => {
-    localUrlBox.textContent = window.location.href;
-    phoneGuideModal.classList.remove('hidden');
-  });
-
-  closeModalBtn.addEventListener('click', () => {
-    phoneGuideModal.classList.add('hidden');
-  });
-
-  phoneGuideModal.addEventListener('click', (e) => {
-    if (e.target === phoneGuideModal) {
-      phoneGuideModal.classList.add('hidden');
-    }
-  });
-
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    state.deferredInstallPrompt = e;
-    installAppBtn.classList.remove('hidden');
-  });
-
-  installAppBtn.addEventListener('click', async () => {
-    if (state.deferredInstallPrompt) {
-      state.deferredInstallPrompt.prompt();
-      await state.deferredInstallPrompt.userChoice;
-      state.deferredInstallPrompt = null;
-      installAppBtn.classList.add('hidden');
-    } else {
-      phoneGuideModal.classList.remove('hidden');
-    }
-  });
-
-  // Register Service Worker for Offline & Samsung Home Screen PWA
+  // Register Service Worker for Offline Caching
   if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }

@@ -66,24 +66,18 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="installAppBtn" class="btn-header btn-install hidden" type="button" title="Installera app">
-          📲
-        </button>
-        <button id="phoneGuideBtn" class="btn-header" type="button" title="Öppna på telefon / Installera">
-          📱
-        </button>
         <button id="lockAppBtn" class="btn-header" type="button" title="Lås appen">
-          🔒
+          🔒 Lås
         </button>
       </div>
     </div>
 
-    <!-- Compact Patient Bar (Weight + Age) & Always-Accessible Search -->
+    <!-- Compact Patient Bar (Weight + Age below it) & Always-Accessible Search -->
     <div class="weight-bar">
       <div class="patient-controls-row">
         <!-- Weight Adjuster -->
         <div class="patient-control-box">
-          <label for="childWeightInput" class="weight-label">⚖️ Vikt</label>
+          <label for="childWeightInput" class="weight-label">⚖️ Barnets vikt</label>
           <div class="weight-input-group">
             <button type="button" class="weight-step-btn" id="weightMinusBtn" aria-label="Minska vikt">−</button>
             <div class="weight-field-wrap">
@@ -102,9 +96,9 @@
           </div>
         </div>
 
-        <!-- Age Adjuster -->
+        <!-- Age Adjuster (Below weight on mobile) -->
         <div class="patient-control-box">
-          <label for="childAgeInput" class="weight-label">👶 Ålder</label>
+          <label for="childAgeInput" class="weight-label">👶 Barnets ålder</label>
           <div class="weight-input-group">
             <button type="button" class="weight-step-btn" id="ageMinusBtn" aria-label="Minska ålder">−</button>
             <div class="age-field-wrap">
@@ -338,47 +332,6 @@
       </div>
     </section>
   </main>
-
-  <!-- Modal: How to open/install on Elsa's Samsung Phone -->
-  <div id="phoneGuideModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 id="modalTitle">📱 Ha appen på Elsas Samsung-telefon</h2>
-        <button type="button" id="closeModalBtn" class="modal-close-btn" aria-label="Stäng">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="guide-step highlight-step">
-          <div class="step-badge">Sätt 1 – Enklast (Via telefonens webbläsare + App-ikon)</div>
-          <p>
-            Eftersom appen är byggd som en <strong>Progressive Web App (PWA)</strong> behöver Elsa inte gå via Google Play! Hon öppnar bara webblänken i <strong>Chrome</strong> eller <strong>Samsung Internet</strong> på sin telefon:
-          </p>
-          <ol class="guide-list">
-            <li>Öppna webblänken i <strong>Chrome</strong> eller <strong>Samsung Internet</strong> på hennes Samsung-telefon.</li>
-            <li>Tryck på knappen <strong>"📲 Installera"</strong> högst upp i appen (eller menyknappen <strong>⋮</strong> → <strong>"Lägg till på hemskärmen" / "Installera app"</strong>).</li>
-            <li>Nu ligger <strong>ePed Skåne</strong> som en riktig app-ikon på hennes hemskärm och fungerar även offline!</li>
-          </ol>
-        </div>
-
-        <div class="guide-step">
-          <div class="step-badge">Testa direkt nu på samma Wi-Fi</div>
-          <p>Om hennes telefon är på samma Wi-Fi som datorn kan hon skanna QR-koden eller skriva in adressen nedan i telefonens webbläsare:</p>
-          <div id="localUrlBox" class="url-copy-box">Laddar nätverksadress...</div>
-          <div id="qrCodeContainer" class="qr-container"></div>
-        </div>
-
-        <div class="guide-step">
-          <div class="step-badge">Sätt 2 – Gör så att hon når den överallt (4G/5G på jobbet)</div>
-          <p>
-            För att hon ska komma åt appen överallt (även utanför hemma-WiFi) kan ni lägga upp mappen gratis på internet på 30 sekunder:
-          </p>
-          <ul class="guide-list">
-            <li><strong>Alternativ A (Utan konto/kod – 30 sek):</strong> Gå till <a href="https://app.netlify.com/drop" target="_blank" rel="noopener">app.netlify.com/drop</a> och dra in mappen <code>Elsa App</code> (eller <code>dist</code>-mappen). Ni får direkt en permanent <code>https://...netlify.app</code>-länk att skicka till Elsa på SMS/WhatsApp!</li>
-            <li><strong>Alternativ B (GitHub Pages):</strong> Pusha detta projekt till GitHub och aktivera GitHub Pages – gratis för alltid.</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- Load Region Skåne ePed Database (943 instructions) -->
   <script src="data/eped_skane_data.js"></script>
