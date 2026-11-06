@@ -158,6 +158,67 @@ def clean_pdf_text(s: str) -> str:
     return s.strip()
 
 
+def parse_age_weight_bounds(text_str: str):
+    t = (text_str or "").lower()
+    min_age_m = None
+    max_age_m = None
+    min_wt = None
+    max_wt = None
+
+    # Weight bounds:
+    m_wt_range = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*kg", t)
+    if m_wt_range:
+        min_wt = parse_swedish_float(m_wt_range.group(1))
+        max_wt = parse_swedish_float(m_wt_range.group(2))
+    else:
+        m_under_w = re.search(r"(?:under|mindre\s+än|upp\s+till|<)\s*(\d+(?:[.,]\d+)?)\s*kg", t)
+        if m_under_w:
+            max_wt = parse_swedish_float(m_under_w.group(1))
+        m_over_w = re.search(r"(?:från|över|>|minst)\s*(\d+(?:[.,]\d+)?)\s*kg", t)
+        if m_over_w:
+            min_wt = parse_swedish_float(m_over_w.group(1))
+
+    # Age bounds:
+    m_my = re.search(r"(\d+(?:[.,]\d+)?)\s*mån(?:ader)?\s*-\s*(\d+(?:[.,]\d+)?)\s*år", t)
+    if m_my:
+        min_age_m = parse_swedish_float(m_my.group(1))
+        max_age_m = parse_swedish_float(m_my.group(2)) * 12.0
+    else:
+        m_mm = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*mån", t)
+        if m_mm:
+            min_age_m = parse_swedish_float(m_mm.group(1))
+            max_age_m = parse_swedish_float(m_mm.group(2))
+        else:
+            m_yy = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*år", t)
+            if m_yy:
+                min_age_m = parse_swedish_float(m_yy.group(1)) * 12.0
+                max_age_m = parse_swedish_float(m_yy.group(2)) * 12.0
+            else:
+                m_oy = re.search(r"(?:från|över)\s+(\d+(?:[.,]\d+)?)\s*(år|mån)", t)
+                if m_oy:
+                    val = parse_swedish_float(m_oy.group(1))
+                    min_age_m = val * 12.0 if m_oy.group(2).startswith("år") else val
+                    max_age_m = 216.0
+                m_uy = re.search(r"(?:under|yngre\s+än)\s+(\d+(?:[.,]\d+)?)\s*(år|mån)", t)
+                if m_uy:
+                    val = parse_swedish_float(m_uy.group(1))
+                    if min_age_m is None:
+                        min_age_m = 0.0
+                    max_age_m = val * 12.0 if m_uy.group(2).startswith("år") else val
+
+    if min_age_m is None and max_age_m is None:
+        if any(w in t for w in ("nyfödd", "prematur", "gestationsålder", "ga vecka", "från ga ", "postnatal ålder", "fullgångna")):
+            min_age_m = 0.0
+            max_age_m = 1.0
+
+    return {
+        "minAgeMonths": min_age_m,
+        "maxAgeMonths": max_age_m,
+        "minWeightKg": min_wt,
+        "maxWeightKg": max_wt,
+    }
+
+
 def extract_regimens_from_lines(lines, indication_title=""):
     """
     Extract structured weight-based, Holliday-Segar, and max-capped dosing regimens from text lines under an indication.
@@ -186,7 +247,6 @@ def extract_regimens_from_lines(lines, indication_title=""):
     # Check if this indication uses the Holliday and Segar maintenance fluid formula
     joined_text = " ".join(cleaned_lines)
     if re.search(r"Holliday\s+and\s+Segar|1000\s*mL\s*\+\s*50\s*mL/kg", joined_text, re.IGNORECASE):
-        # Also keep any neonatal / specific line before Holliday-Segar (e.g. "Nyfödda, dag 7 - 28: 100 mL/kg/dygn")
         for ln in cleaned_lines:
             if re.search(r"Nyfödda.*?\d+\s*mL/kg", ln, re.IGNORECASE):
                 m_neo = re.search(r"(\d+(?:[.,]\d+)?)\s*mL/kg(?:/(dygn|d|tim|t))?", ln, re.IGNORECASE)
@@ -211,7 +271,13 @@ def extract_regimens_from_lines(lines, indication_title=""):
                         "maxDoseUnit": None,
                         "maxDayVal": None,
                         "maxDayUnit": None,
+                        "maxDosePerKg": None,
                         "maxDayPerKg": None,
+                        "escMaxNote": None,
+                        "minAgeMonths": 0.0,
+                        "maxAgeMonths": 1.0,
+                        "minWeightKg": None,
+                        "maxWeightKg": 10.0,
                     })
 
         regimens.append({
@@ -234,63 +300,116 @@ def extract_regimens_from_lines(lines, indication_title=""):
             "maxDayUnit": "mL",
             "maxDayGirlVal": 2000.0,
             "maxDayBoyVal": 2500.0,
+            "maxDosePerKg": None,
             "maxDayPerKg": None,
+            "escMaxNote": None,
+            "minAgeMonths": 1.0,
+            "maxAgeMonths": 216.0,
+            "minWeightKg": None,
+            "maxWeightKg": None,
         })
         return regimens
 
     def parse_max_tokens(text_str):
-        """Extract max dose / max daily dose from a line of text."""
+        """Extract primary max dose / max daily dose / per-kg max / escalation note from a clause or line."""
+        # Collapse spaces inside thousands numbers like "5 000 E" -> "5000 E"
+        s = re.sub(r"(\d)\s+(\d{3})\b", r"\1\2", text_str)
+        # Normalize "mg järn" -> "mg"
+        s = re.sub(r"\b(mg|mikrog|µg|g|gram)\s+järn\b", r"\1", s, flags=re.IGNORECASE)
+
         m_dose_val, m_dose_unit = None, None
         m_day_val, m_day_unit = None, None
+        m_dose_kg = None
         m_day_kg = None
 
-        m_mk = re.search(r"max(?:dos|imalt|imal)?\s*:?\s*(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)/kg/(?:dygn|d)\b", text_str, re.IGNORECASE)
-        if m_mk:
-            m_day_kg = parse_swedish_float(m_mk.group(1))
-
-        # Match patterns like:
-        # "max 400 mg/DOS", "max 1,5 gram/DYGN", "max 75 mg x 1", "max 875 mg x 3", "max 2 - 3 gram/DOS", "Max 20 GRAM", "Maxdos: 100 mg/DYGN"
-        max_re = re.compile(
-            r"\bmax(?:dos|imal\s+dygnsdos|imalt|imal)?\b\s*:?\s*"
-            r"(?:(\d+(?:[.,]\d+)?)\s*-\s*)?"
-            r"(\d+(?:[.,]\d+)?)"
-            r"(?:\s*\(\s*-\s*(\d+(?:[.,]\d+)?)\s*\))?"
-            r"\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)\b"
-            r"(?:\s*/\s*(dos|dygn|d|tim|t|min|kg|\d+\s*tim))?"
-            r"(?:\s*(?:x|×)\s*(\d+))?",
+        # 1. Per-kg max (e.g. "max 100 mg/kg/DYGN", "max 40 mikrog/kg per dygn", "max 5 mg/kg x 1")
+        for mk in re.finditer(
+            r"\bmax(?:dos|imalt|imal)?\b[^0-9]{0,25}?(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)/kg(?:\s*(?:/|per\s+)(dygn|d|tim|t|min|dos))?(?:\s*(?:x|×)\s*(\d+))?",
+            s,
             re.IGNORECASE,
-        )
-        for mm in max_re.finditer(text_str):
-            scope = (mm.group(5) or "").lower().strip()
-            if scope == "kg":
-                continue
-            # Check if followed by "/kg" right after
-            after_pos = mm.end()
-            if text_str[after_pos:after_pos + 4].lower().startswith("/kg"):
-                continue
-
-            low_v = parse_swedish_float(mm.group(1))
-            high_v = parse_swedish_float(mm.group(2))
-            opt_v = parse_swedish_float(mm.group(3))
-            val = opt_v or high_v or low_v
-            if not val:
-                continue
-            u = normalize_mass_unit(mm.group(4))
-            freq_x = int(mm.group(6)) if mm.group(6) else None
-
-            if scope in ("dygn", "d") or "dygnsdos" in mm.group(0).lower():
-                m_day_val, m_day_unit = val, u
-            elif freq_x and freq_x >= 1:
-                m_dose_val, m_dose_unit = val, u
-                m_day_val, m_day_unit = val * freq_x, u
+        ):
+            v1 = parse_swedish_float(mk.group(1))
+            v2 = parse_swedish_float(mk.group(2))
+            val = v2 or v1
+            scope = (mk.group(4) or "").lower()
+            fx = int(mk.group(5)) if mk.group(5) else None
+            if scope in ("dygn", "d"):
+                m_day_kg = val
+            elif fx:
+                m_dose_kg = val
+                m_day_kg = val * fx
             else:
-                # Could be per-dose or total step/day cap
-                m_dose_val, m_dose_unit = val, u
+                m_dose_kg = val
 
-        return m_dose_val, m_dose_unit, m_day_val, m_day_unit, m_day_kg
+        # 2. Separate primary clause from escalation clause ("Vid behov kan dosen ökas till max 2 gram x 3")
+        split_esc = re.split(
+            r"(?:\.\s*|\b)(?:vid\s+behov\s+kan|kan\s+vid\s+behov|i\s+undantagsfall|vid\s+svårare|för\s+vissa\s+agens)",
+            s,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )
+        primary_part = split_esc[0]
+        escalation_part = s[len(primary_part):].strip(" .,") if len(split_esc) > 1 else ""
+
+        def extract_abs_max(sub_s):
+            dv, du, dayv, dayu = None, None, None, None
+            max_re = re.compile(
+                r"(?:\bmax(?:dos|imal\s+dygnsdos|imalt|imal)?\b(?:\s*,\s*enligt\s+fass)?(?:\s+är)?(?:\s+vanligen)?(?:\s+totalt)?(?:\s+underhållsdos)?|\bupp\s+till\b)\s*:?\s*"
+                r"(?:(\d+(?:[.,]\d+)?)\s*-\s*)?"
+                r"(\d+(?:[.,]\d+)?)"
+                r"(?:\s*\(\s*-\s*(\d+(?:[.,]\d+)?)\s*\))?"
+                r"\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)\b"
+                r"(?:\s*(?:/|per\s+)(dos|dygn|d|tim|t|min|kg|m²|m2|\d+\s*tim))?"
+                r"(?:\s*(?:x|×)\s*(\d+))?",
+                re.IGNORECASE,
+            )
+            for mm in max_re.finditer(sub_s):
+                if mm.group(0).lower().startswith("upp till") and "max" not in sub_s.lower():
+                    continue
+                scope = (mm.group(5) or "").lower().strip()
+                if scope in ("kg", "m²", "m2"):
+                    continue
+                after_pos = mm.end()
+                after_slice = sub_s[after_pos:after_pos + 5].lower().strip()
+                if after_slice.startswith("/kg") or after_slice.startswith("/m"):
+                    continue
+
+                low_v = parse_swedish_float(mm.group(1))
+                high_v = parse_swedish_float(mm.group(2))
+                opt_v = parse_swedish_float(mm.group(3))
+                val = opt_v or high_v or low_v
+                if not val:
+                    continue
+                u = normalize_mass_unit(mm.group(4))
+                freq_x = int(mm.group(6)) if mm.group(6) else None
+
+                if scope in ("dygn", "d") or "dygnsdos" in mm.group(0).lower():
+                    if dayv is None:
+                        dayv, dayu = val, u
+                elif freq_x and freq_x >= 1:
+                    if dv is None:
+                        dv, du = val, u
+                    if dayv is None:
+                        dayv, dayu = val * freq_x, u
+                else:
+                    if dv is None:
+                        dv, du = val, u
+            return dv, du, dayv, dayu
+
+        m_dose_val, m_dose_unit, m_day_val, m_day_unit = extract_abs_max(primary_part)
+        esc_dv, esc_du, esc_dayv, esc_dayu = extract_abs_max(escalation_part) if escalation_part else (None, None, None, None)
+
+        # If there was NO primary max at all, but there was a max in escalation_part (e.g. "Vid behov kan dosen ökas till max 1 gram/DOS" as its own sentence)
+        if m_dose_val is None and m_day_val is None and (esc_dv or esc_dayv) and not re.search(r"\bmax", primary_part, re.IGNORECASE):
+            m_dose_val, m_dose_unit = esc_dv, esc_du
+            m_day_val, m_day_unit = esc_dayv, esc_dayu
+            esc_note = None
+        else:
+            esc_note = escalation_part if (esc_dv or esc_dayv) else None
+
+        return m_dose_val, m_dose_unit, m_day_val, m_day_unit, m_dose_kg, m_day_kg, esc_note
 
     for line_c in cleaned_lines:
-        # Skip calculation examples ("Räkneexempel 1:", etc.)
         if re.match(r"^Räkneexempel\b", line_c, re.IGNORECASE):
             in_example_block = True
             continue
@@ -300,7 +419,16 @@ def extract_regimens_from_lines(lines, indication_title=""):
             else:
                 continue
 
-        has_dose_num = bool(re.search(r"\d+\s*(mg|mikrog|µg|g|gram|E|IE|mmol|mL)/kg", line_c, re.IGNORECASE))
+        # Collapse thousands separator spaces for easier regex matching
+        line_norm = re.sub(r"(\d)\s+(\d{3})\b", r"\1\2", line_c)
+        line_norm = re.sub(r"\b(mg|mikrog|µg|g|gram)\s+järn\b", r"\1", line_norm, flags=re.IGNORECASE)
+
+        has_dose_num = bool(re.search(r"\d+\s*(mg|mikrog|µg|g|gram|E|IE|mmol|mL)/kg", line_norm, re.IGNORECASE))
+
+        # Check if a line with "/kg" is actually a pure standalone Max-cap line (e.g. "Maxdos 80 mg/kg/DYGN." or "Maxdos 40 mg/kg/DYGN eller 1,5 gram/DYGN" or "Max 60 mg/kg/DYGN, dock max 4 gram/DYGN")
+        is_pure_max_line = bool(re.match(r"^(?:dock\s+)?(?:vanligen\s+)?max(?:dos|imalt|imal)?\b", line_norm.strip(), re.IGNORECASE))
+        if is_pure_max_line and regimens:
+            has_dose_num = False
 
         if not has_dose_num:
             if age_header_re.match(line_c):
@@ -314,11 +442,57 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 step_context = line_c.rstrip(":").strip()
                 continue
 
-            # Check if this non-rate line is a standalone Max cap line or a fixed upper-weight cap line
-            # Case A: Standalone max line (e.g. "Max 20 GRAM", "Max 1,2 gram/DYGN", "Max 2 gram/DOS")
-            if "max" in line_c.lower() and "/m²" not in line_c.lower() and regimens:
-                md_v, md_u, mday_v, mday_u, mday_kg = parse_max_tokens(line_c)
-                if md_v or mday_v:
+            # Case A: Weight-or-age conditional max line, e.g.
+            # "Maxdos barn under 50 kg: 15 mg/DOS, 60 mg/DYGN" / "Maxdos barn från 50 kg: 30 mg/DOS, 90 mg/DYGN"
+            m_cond_wt_max = re.search(
+                r"max(?:dos)?\s+barn\s+(under|från|över)\s+(\d+(?:[.,]\d+)?)\s*kg\s*:\s*"
+                r"(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)/(?:dos)\s*(?:,\s*(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)/(?:dygn|d))?",
+                line_norm,
+                re.IGNORECASE,
+            )
+            if m_cond_wt_max and regimens:
+                cond_dir = m_cond_wt_max.group(1).lower()
+                cond_wt = parse_swedish_float(m_cond_wt_max.group(2))
+                c_dv = parse_swedish_float(m_cond_wt_max.group(3))
+                c_du = normalize_mass_unit(m_cond_wt_max.group(4))
+                c_dayv = parse_swedish_float(m_cond_wt_max.group(5)) if m_cond_wt_max.group(5) else None
+                c_dayu = normalize_mass_unit(m_cond_wt_max.group(6)) if m_cond_wt_max.group(6) else None
+                rule = {
+                    "type": "under" if cond_dir == "under" else "from",
+                    "weightKg": cond_wt,
+                    "maxDoseVal": c_dv,
+                    "maxDoseUnit": c_du,
+                    "maxDayVal": c_dayv,
+                    "maxDayUnit": c_dayu,
+                }
+                for prev_r in regimens:
+                    prev_r.setdefault("weightMaxRules", []).append(rule)
+                    if not prev_r["maxDoseVal"] or c_dv > prev_r["maxDoseVal"]:
+                        prev_r["maxDoseVal"], prev_r["maxDoseUnit"] = c_dv, c_du
+                    if c_dayv and (not prev_r["maxDayVal"] or c_dayv > prev_r["maxDayVal"]):
+                        prev_r["maxDayVal"], prev_r["maxDayUnit"] = c_dayv, c_dayu
+                continue
+
+            # Case B: General standalone max line (e.g. "Max 20 GRAM", "Max 1,2 gram/DYGN", "Max 60 mg/kg/DYGN, dock max 4 gram/DYGN", "Maxdos, enligt FASS: 60 mg")
+            if ("max" in line_norm.lower() or step_context.lower().startswith("max")) and "/m²" not in line_norm.lower() and regimens:
+                md_v, md_u, mday_v, mday_u, md_kg, mday_kg, esc_n = parse_max_tokens(
+                    ("Max " + line_norm) if not ("max" in line_norm.lower()) else line_norm
+                )
+                if md_v or mday_v or md_kg or mday_kg:
+                    # Check if this line is age-scoped (e.g. "Barn 1 mån - 12 år: 2 gram/DYGN" under "Maxdos")
+                    bounds = parse_age_weight_bounds(line_c)
+                    if bounds["minAgeMonths"] is not None or bounds["maxAgeMonths"] is not None:
+                        age_rule = {
+                            "minAgeMonths": bounds["minAgeMonths"],
+                            "maxAgeMonths": bounds["maxAgeMonths"],
+                            "maxDoseVal": md_v,
+                            "maxDoseUnit": md_u,
+                            "maxDayVal": mday_v,
+                            "maxDayUnit": mday_u,
+                        }
+                        for prev_r in regimens:
+                            prev_r.setdefault("ageMaxRules", []).append(age_rule)
+
                     for prev_r in reversed(regimens):
                         if prev_r["isPerDay"] and md_v and not mday_v:
                             if not prev_r["maxDayVal"]:
@@ -328,11 +502,14 @@ def extract_regimens_from_lines(lines, indication_title=""):
                                 prev_r["maxDoseVal"], prev_r["maxDoseUnit"] = md_v, md_u
                             if mday_v and not prev_r["maxDayVal"]:
                                 prev_r["maxDayVal"], prev_r["maxDayUnit"] = mday_v, mday_u
-                        # Apply to the immediate group of regimens
+                        if md_kg and not prev_r.get("maxDosePerKg"):
+                            prev_r["maxDosePerKg"] = md_kg
+                        if mday_kg and not prev_r.get("maxDayPerKg"):
+                            prev_r["maxDayPerKg"] = mday_kg
                     continue
 
-            # Case B: Fixed dose for heavier/older children right after a weight-based regimen
-            # e.g. "Barn över 12 år, eller från 50 kg: 400 mg x 1" or "Barn från 40 kg: 400 mg x 2" or "Barn från 60 kg: 300 mg"
+            # Case C: Fixed dose for heavier/older children right after a weight-based regimen
+            # e.g. "Barn över 12 år, eller från 50 kg: 400 mg x 1" or "Barn från 40 kg: 400 mg x 2"
             m_fixed_cap = re.search(
                 r"^(?:Barn[^:]*?(?:från|över)\s+(\d+(?:[.,]\d+)?)\s*kg[^:]*|"
                 r"(?:Från|Över)\s+(\d+(?:[.,]\d+)?)\s*kg[^:]*|"
@@ -341,10 +518,10 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 r"(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)\b"
                 r"(?:/(dygn|d|dos))?"
                 r"(?:\s*(?:x|×)\s*(\d+)(?:\s*-\s*(\d+))?)?",
-                line_c,
+                line_norm,
                 re.IGNORECASE,
             )
-            if m_fixed_cap and regimens and "/m²" not in line_c.lower():
+            if m_fixed_cap and regimens and "/m²" not in line_norm.lower():
                 wt_thresh = parse_swedish_float(m_fixed_cap.group(1) or m_fixed_cap.group(2))
                 fix_min = parse_swedish_float(m_fixed_cap.group(3))
                 fix_max = parse_swedish_float(m_fixed_cap.group(4)) or fix_min
@@ -353,8 +530,7 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 fix_fmin = int(m_fixed_cap.group(7)) if m_fixed_cap.group(7) else None
                 fix_fmax = int(m_fixed_cap.group(8)) if m_fixed_cap.group(8) else fix_fmin
 
-                # Also check if the line itself has ", max 875 mg x 3"
-                md_v, md_u, mday_v, mday_u, _ = parse_max_tokens(line_c)
+                md_v, md_u, mday_v, mday_u, _, _, _ = parse_max_tokens(line_norm)
 
                 for prev_r in regimens:
                     if prev_r["maxDoseVal"] or prev_r["maxDayVal"]:
@@ -388,18 +564,38 @@ def extract_regimens_from_lines(lines, indication_title=""):
             re.IGNORECASE,
         )
 
-        # Avoid duplicate equivalent regimens on the same line like "200 mg/kg på 4 tim = 50 mg/kg/tim = 1 mL/kg/tim"
-        # or "vanligen 3 mg/kg x 1, max 5 mg/kg x 1"
-        matches = list(pattern.finditer(line_c))
+        matches = list(pattern.finditer(line_norm))
+        # Filter out matches that are:
+        # 1) Preceded by "max" (e.g. "max 5 mg/kg x 1" or "max 100 mg/kg/dygn")
+        # 2) Inside prose ("jämfört med dosering 20 mg/kg", "överskrider 20 mg/kg")
+        # 3) Equivalent unit conversions on the same line separated only by "=" or "(" (not "alt"/"eller")
+        valid_matches = []
         for idx_m, m in enumerate(matches):
-            # Skip if this match is immediately preceded by "max " (e.g., "max 5 mg/kg x 1" or "max 0,3 mg/kg")
-            before_slice = line_c[max(0, m.start() - 12):m.start()].lower()
-            if re.search(r"\bmax(?:dos|imalt)?\s*:?\s*$", before_slice) and idx_m > 0:
+            before_slice = line_norm[max(0, m.start() - 25):m.start()].lower()
+            if re.search(r"\bmax(?:dos|imalt|imal)?\b[^0-9]*$", before_slice):
                 continue
-            # Skip if this match is inside prose like "dos jämfört med dosering 20 mg/kg"
-            if re.search(r"jämfört\s+med\s+dosering\s*$", line_c[:m.start()], re.IGNORECASE):
+            if re.search(r"(?:jämfört\s+med\s+dosering|överskrider|mer\s+än|inte\s+mer\s+än|upp\s+mot)\s*$", line_norm[:m.start()], re.IGNORECASE):
                 continue
+            if valid_matches:
+                prev_m = valid_matches[-1]
+                between = line_norm[prev_m.end():m.start()].strip()
+                # If separated by "=" or "(" without "alt"/"eller", it's an equivalent unit representation of the same dose
+                if (between.startswith("=") or "(" in between or "motsvara" in between.lower()) and not re.search(r"\b(?:alt|alternativt|eller)\b", between, re.IGNORECASE):
+                    continue
+            valid_matches.append(m)
 
+        # Fallback: line-level max tokens if a clause doesn't have its own
+        line_md_v, line_md_u, line_mday_v, line_mday_u, line_md_kg, line_mday_kg, line_esc = parse_max_tokens(line_norm)
+
+        # Also check if the same line has a two-column fixed cap at the end like "Depåjärn: 15 mg/kg   500 mg"
+        if not line_md_v and len(valid_matches) == 1:
+            after_first = line_norm[valid_matches[0].end():]
+            m_col_fix = re.search(r"^\s+(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E|mmol|mL)\s*$", after_first, re.IGNORECASE)
+            if m_col_fix:
+                line_md_v = parse_swedish_float(m_col_fix.group(1))
+                line_md_u = normalize_mass_unit(m_col_fix.group(2))
+
+        for idx_vm, m in enumerate(valid_matches):
             opt_low = parse_swedish_float(m.group(1))
             d_min = parse_swedish_float(m.group(2))
             d_max = parse_swedish_float(m.group(3)) or d_min
@@ -420,18 +616,34 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 infusion_time = "min"
 
             if is_per_day and not f_min:
-                m_div = re.search(r"fördelat\s+på\s+(\d+)(?:\s*-\s*(\d+))?\s*(?:doser|tillfällen|gånger)", line_c, re.IGNORECASE)
+                m_div = re.search(r"(?:fördelat|uppdelat)\s+(?:på|i)\s+(\d+)(?:\s*-\s*(\d+))?\s*(?:doser|tillfällen|gånger)", line_norm, re.IGNORECASE)
                 if m_div:
                     f_min = int(m_div.group(1))
                     f_max = int(m_div.group(2)) if m_div.group(2) else f_min
 
-            max_dose_val, max_dose_unit, max_day_val, max_day_unit, max_day_kg = parse_max_tokens(line_c)
+            # Determine clause slice for this specific match
+            clause_end = valid_matches[idx_vm + 1].start() if idx_vm + 1 < len(valid_matches) else len(line_norm)
+            clause_str = line_norm[m.start():clause_end]
+            c_md_v, c_md_u, c_mday_v, c_mday_u, c_md_kg, c_mday_kg, c_esc = parse_max_tokens(clause_str)
 
-            # Check if line specifies an upper weight bound like "under 50 kg" or "under 40 kg"
-            m_under_wt = re.search(r"(?:under|mindre\s+än|<)\s*(\d+(?:[.,]\d+)?)\s*kg", line_c, re.IGNORECASE)
-            max_weight_kg = parse_swedish_float(m_under_wt.group(1)) if m_under_wt else None
+            max_dose_val = c_md_v if c_md_v is not None else line_md_v
+            max_dose_unit = c_md_u if c_md_v is not None else line_md_u
+            max_day_val = c_mday_v if c_mday_v is not None else line_mday_v
+            max_day_unit = c_mday_u if c_mday_v is not None else line_mday_u
+            max_dose_kg = c_md_kg if c_md_kg is not None else line_md_kg
+            max_day_kg = c_mday_kg if c_mday_kg is not None else line_mday_kg
+            esc_note = c_esc or line_esc
 
-            prefix = line_c[:m.start()].strip(" :,-|.")
+            # If this is a per-day regimen and the clause said "max 600 mg" without "/dygn", treat it as maxDayVal
+            if is_per_day and max_dose_val and not max_day_val and not f_min:
+                max_day_val, max_day_unit = max_dose_val, max_dose_unit
+                max_dose_val, max_dose_unit = None, None
+
+            prefix_start = valid_matches[idx_vm - 1].end() if idx_vm > 0 else 0
+            prefix = line_norm[prefix_start:m.start()].strip(" :,-|.")
+            if idx_vm > 0:
+                # Clean trailing "max ..." from previous clause if this is a second regimen on the same line
+                prefix = re.sub(r"^.*?\b(?:alt\.?|alternativt|eller)\b\s*", "Alternativt ", prefix, flags=re.IGNORECASE).strip(" :,-|.")
             if prefix.lower() in ("alt", "alt.", "alternativt", "eller"):
                 prefix = "Alternativt"
 
@@ -444,6 +656,7 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 parts.append(prefix)
 
             label = " • ".join(parts) if parts else (indication_title or "Standarddos")
+            bounds = parse_age_weight_bounds(f"{label} {line_norm}")
 
             regimens.append({
                 "label": label,
@@ -463,8 +676,13 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 "maxDoseUnit": max_dose_unit,
                 "maxDayVal": max_day_val,
                 "maxDayUnit": max_day_unit,
+                "maxDosePerKg": max_dose_kg,
                 "maxDayPerKg": max_day_kg,
-                "maxWeightKg": max_weight_kg,
+                "escMaxNote": esc_note,
+                "minAgeMonths": bounds["minAgeMonths"],
+                "maxAgeMonths": bounds["maxAgeMonths"],
+                "minWeightKg": bounds["minWeightKg"],
+                "maxWeightKg": bounds["maxWeightKg"],
             })
 
     # Post-pass: if a later regimen in the same indication has a maxDoseVal/maxDayVal and earlier ones (e.g. Nyfödda / yngre barn)
@@ -787,20 +1005,32 @@ def parse_single_pdf(item):
     is_solid_title = any(w in t_lower for w in ("tablett", "kapsel", "kapslar", "suppositorium", "plåster", "pulver", "granulat")) and not any(
         w in t_lower for w in ("suspension", "lösning", "inf", "inj", "mixtur", "droppar", "klysma", "lavemang", "vatten")
     )
+    meta["solidStrengths"] = []
     if not meta["concValue"]:
         if is_solid_title:
-            # Try to find tablet/capsule strength in appliesTo if single strength, otherwise leave concValue None
-            applies_text = " ".join(applies_to)
-            m_sols = re.findall(r"(?:tablett|kapsel|suppositorium)\w*\s+(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E)\b", applies_text, re.IGNORECASE)
-            if len(m_sols) == 1:
-                meta["concValue"] = parse_swedish_float(m_sols[0][0])
-                meta["concUnit"] = normalize_mass_unit(m_sols[0][1])
-                meta["concText"] = f"{m_sols[0][0]} {meta['concUnit']}"
+            # Find all solid strengths in applies_to lines that describe the solid form
+            sol_items = []
+            seen_sol = set()
+            for app_ln in applies_to:
+                if "/ml" in app_ln.lower() or "suspension" in app_ln.lower() or "lösning" in app_ln.lower():
+                    continue
+                if any(w in app_ln.lower() for w in ("tablett", "kapsel", "kapslar", "suppositorium", "granulat", "pulver", "plåster")):
+                    for ms in re.finditer(r"(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E)\b(?!\s*/)", app_ln, re.IGNORECASE):
+                        sv = parse_swedish_float(ms.group(1))
+                        su = normalize_mass_unit(ms.group(2))
+                        if sv and (sv, su) not in seen_sol:
+                            seen_sol.add((sv, su))
+                            sol_items.append({"val": sv, "unit": su, "text": f"{ms.group(1)} {su}"})
+            if len(sol_items) == 1:
+                meta["concValue"] = sol_items[0]["val"]
+                meta["concUnit"] = sol_items[0]["unit"]
+                meta["concText"] = sol_items[0]["text"]
                 meta["isLiquid"] = False
-            elif len(m_sols) > 1:
-                strengths_str = "/".join(m[0] for m in m_sols) + " " + normalize_mass_unit(m_sols[0][1])
-                meta["concText"] = strengths_str
+                meta["solidStrengths"] = sol_items
+            elif len(sol_items) > 1:
+                meta["concText"] = " / ".join(x["text"] for x in sol_items)
                 meta["isLiquid"] = False
+                meta["solidStrengths"] = sol_items
         else:
             all_ind_text = " ".join(" ".join(i["lines"]) for i in indications) + " " + " ".join(applies_to)
             m_c = re.search(r"(\d+(?:[.,]\d+)?)\s*(mg|mikrog|µg|g|gram|IE|E|mmol)/mL", all_ind_text, re.IGNORECASE)

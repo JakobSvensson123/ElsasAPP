@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b4f9c" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>ePed Skåne – Barnläkemedel & Dosräknare</title>
+  <title>Elsas ePed v1.2 – Barnläkemedel &amp; Dosräknare</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -17,8 +17,8 @@
   <!-- Built-in PIN Lock Screen -->
   <div id="pinLockOverlay" class="pin-lock-overlay" role="dialog" aria-modal="true" aria-labelledby="pinLockTitle">
     <div class="pin-lock-card">
-      <img src="icon-192.png" alt="ePed Skåne" class="pin-lock-logo" />
-      <h1 id="pinLockTitle" class="pin-lock-title">ePed Region Skåne</h1>
+      <img src="icon-192.png" alt="Elsas ePed" class="pin-lock-logo" />
+      <h1 id="pinLockTitle" class="pin-lock-title">Elsas ePed</h1>
       <p class="pin-lock-subtitle">Ange PIN-kod för att öppna appen</p>
 
       <div class="pin-dots" id="pinDotsContainer" aria-live="polite">
@@ -49,101 +49,116 @@
         <span>Kom ihåg mig på denna telefon</span>
       </label>
       <div style="margin-top: 14px; font-size: 0.72rem; color: #94a3b8; font-weight: 600;">
-        Version 1.1 – Vätske- &amp; Maxdosfix
+        Version 1.2 – Mobilvänlig &amp; Maxdosfix
       </div>
     </div>
   </div>
 
-  <!-- Top App Header -->
+  <!-- Ultra-Compact Top App Header -->
   <header class="app-header">
     <div class="header-inner">
-      <div class="brand-group" id="homeLogoBtn" role="button" tabindex="0" title="Tillbaka till läkemedelslistan">
-        <img src="icon.svg" alt="ePed Skåne" class="brand-icon" />
-        <div>
-          <div class="brand-title">
-            ePed Region Skåne
-            <span class="version-pill" title="Version 1.1: Holliday & Segar vätskeformel + Maxdos-spärr">v1.1</span>
-          </div>
-          <div class="brand-subtitle" id="headerStats">Laddar 943 instruktioner...</div>
+      <div class="brand-group" id="homeLogoBtn" role="button" tabindex="0" title="Elsas ePed Skåne">
+        <img src="icon.svg" alt="Elsas ePed" class="brand-icon" />
+        <div class="brand-text-wrap">
+          <span class="brand-title">Elsas ePed</span>
+          <span class="version-pill" title="Version 1.2: Mobil-UI, Åldersval, Maxdos- & Vätskefix">v1.2</span>
+          <span class="brand-subtitle" id="headerStats">943 instr.</span>
         </div>
       </div>
       <div class="header-actions">
-        <button id="installAppBtn" class="btn-header btn-install hidden" type="button">
-          📲 Installera
+        <button id="installAppBtn" class="btn-header btn-install hidden" type="button" title="Installera app">
+          📲
         </button>
         <button id="phoneGuideBtn" class="btn-header" type="button" title="Öppna på telefon / Installera">
-          📱 På telefonen
+          📱
         </button>
         <button id="lockAppBtn" class="btn-header" type="button" title="Lås appen">
-          🔒 Lås
+          🔒
         </button>
       </div>
     </div>
 
-    <!-- Sticky Child Weight Bar (Always accessible!) -->
+    <!-- Compact Patient Bar (Weight + Age) & Always-Accessible Search -->
     <div class="weight-bar">
-      <div class="weight-bar-main">
-        <label for="childWeightInput" class="weight-label">
-          <span class="weight-icon">⚖️</span>
-          <span>Barnets vikt:</span>
-        </label>
-        <div class="weight-input-group">
-          <button type="button" class="weight-step-btn" id="weightMinusBtn" aria-label="Minska vikt">−</button>
-          <div class="weight-field-wrap">
-            <input
-              type="text"
-              inputmode="decimal"
-              id="childWeightInput"
-              class="weight-input"
-              placeholder="t.ex. 12,5"
-              value="12"
-              autocomplete="off"
-            />
-            <span class="weight-unit">kg</span>
+      <div class="patient-controls-row">
+        <!-- Weight Adjuster -->
+        <div class="patient-control-box">
+          <label for="childWeightInput" class="weight-label">⚖️ Vikt</label>
+          <div class="weight-input-group">
+            <button type="button" class="weight-step-btn" id="weightMinusBtn" aria-label="Minska vikt">−</button>
+            <div class="weight-field-wrap">
+              <input
+                type="text"
+                inputmode="decimal"
+                id="childWeightInput"
+                class="weight-input"
+                placeholder="12"
+                value="12"
+                autocomplete="off"
+              />
+              <span class="weight-unit">kg</span>
+            </div>
+            <button type="button" class="weight-step-btn" id="weightPlusBtn" aria-label="Öka vikt">+</button>
           </div>
-          <button type="button" class="weight-step-btn" id="weightPlusBtn" aria-label="Öka vikt">+</button>
         </div>
-        <div class="weight-badge" id="activeWeightBadge">12 kg</div>
+
+        <!-- Age Adjuster -->
+        <div class="patient-control-box">
+          <label for="childAgeInput" class="weight-label">👶 Ålder</label>
+          <div class="weight-input-group">
+            <button type="button" class="weight-step-btn" id="ageMinusBtn" aria-label="Minska ålder">−</button>
+            <div class="age-field-wrap">
+              <input
+                type="text"
+                inputmode="decimal"
+                id="childAgeInput"
+                class="weight-input age-input"
+                placeholder="–"
+                value="2"
+                autocomplete="off"
+              />
+              <select id="childAgeUnit" class="age-unit-select" aria-label="Åldersenhet">
+                <option value="years" selected>år</option>
+                <option value="months">mån</option>
+                <option value="days">dagar</option>
+                <option value="all">alla</option>
+              </select>
+            </div>
+            <button type="button" class="weight-step-btn" id="agePlusBtn" aria-label="Öka ålder">+</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Quick Weight Chips -->
-      <div class="weight-chips" aria-label="Snabbval för vikt">
-        <button type="button" class="weight-chip" data-weight="1">1 kg</button>
-        <button type="button" class="weight-chip" data-weight="3.5">3,5 kg</button>
-        <button type="button" class="weight-chip" data-weight="5">5 kg</button>
-        <button type="button" class="weight-chip" data-weight="8">8 kg</button>
-        <button type="button" class="weight-chip" data-weight="10">10 kg</button>
-        <button type="button" class="weight-chip active" data-weight="12">12 kg</button>
-        <button type="button" class="weight-chip" data-weight="15">15 kg</button>
-        <button type="button" class="weight-chip" data-weight="20">20 kg</button>
-        <button type="button" class="weight-chip" data-weight="30">30 kg</button>
-        <button type="button" class="weight-chip" data-weight="50">50 kg</button>
-      </div>
-    </div>
-  </header>
-
-  <!-- Main Workspace Layout (Responsive Split on Desktop, Single View on Mobile) -->
-  <main class="app-main">
-    <!-- Left / List View: Search & Browse 943 Medications -->
-    <section class="panel-list" id="listViewSection">
-      <div class="search-box-container">
+      <!-- Compact Search Bar right inside top bar so calculations stay visible below -->
+      <div class="top-search-row">
         <div class="search-input-wrap">
           <span class="search-icon">🔍</span>
           <input
             type="search"
             id="medSearchInput"
             class="search-input"
-            placeholder="Sök substans, läkemedel (ex Alvedon, Ipren, Spektramox)..."
+            placeholder="Sök läkemedel (ex Kåvepenin, Alvedon, Cefixim)..."
             autocomplete="off"
           />
           <button type="button" id="clearSearchBtn" class="clear-search-btn hidden" aria-label="Rensa sökning">✕</button>
         </div>
+        <button type="button" id="toggleListBtn" class="btn-toggle-list" title="Visa/dölj läkemedelslista">
+          📋 Lista
+        </button>
+      </div>
+    </div>
+  </header>
 
+  <!-- Main Workspace Layout -->
+  <main class="app-main">
+    <!-- Medication Search / Filter Panel (Dropdown on Mobile so Calculations stay visible, Left Sidebar on Desktop) -->
+    <section class="panel-list mobile-list-closed" id="listViewSection">
+      <div class="search-box-container">
         <!-- Route Filter Pills -->
         <div class="filter-pills" id="routeFilterContainer">
-          <button type="button" class="filter-pill active" data-route="ALL">Alla (943)</button>
+          <button type="button" class="filter-pill active" data-route="ALL">Alla</button>
           <button type="button" class="filter-pill" data-route="FAV">⭐ Favoriter</button>
-          <button type="button" class="filter-pill" data-route="CALC">🧮 Med vikt-dos</button>
+          <button type="button" class="filter-pill" data-route="CALC">🧮 Vikt-dos</button>
           <button type="button" class="filter-pill" data-route="Oralt">💧 Oralt</button>
           <button type="button" class="filter-pill" data-route="Intravenöst / Inj">💉 IV / Inj</button>
           <button type="button" class="filter-pill" data-route="Rektalt">Rektalt</button>
@@ -153,9 +168,7 @@
 
       <div class="list-status-bar">
         <span id="listCountText">Visar 943 läkemedel</span>
-        <a href="https://eped.se/backup/eped/lists/7476950922805723811.html" target="_blank" rel="noopener" class="eped-source-link">
-          Källa: ePed Skåne ↗
-        </a>
+        <button type="button" id="closeListMobileBtn" class="btn-close-list-mobile">Stäng lista ✕</button>
       </div>
 
       <div class="med-list" id="medListContainer" role="listbox" aria-label="Läkemedelsinstruktioner">
@@ -163,39 +176,30 @@
       </div>
     </section>
 
-    <!-- Right / Detail & Dose Calculator View -->
+    <!-- Right / Detail & Dose Calculator View (Always visible on mobile while adjusting weight/age/dosage!) -->
     <section class="panel-detail" id="detailViewSection">
       <div id="emptyDetailState" class="empty-detail-state">
         <div class="empty-icon">🩺</div>
-        <h2>Välj ett läkemedel i listan</h2>
-        <p>Ange barnets vikt högst upp och välj läkemedel för att direkt räkna ut exakt dos (mg/mikrog/E) och volym (mL) enligt Region Skånes ePed-instruktioner.</p>
+        <h2>Sök eller välj ett läkemedel ovan</h2>
+        <p>Ange barnets vikt och ålder högst upp för att direkt se dos och volym enligt Region Skånes ePed-instruktioner.</p>
       </div>
 
       <div id="medDetailContent" class="med-detail-content hidden">
-        <!-- Mobile Back Button -->
-        <div class="mobile-back-bar">
-          <button type="button" id="backToListBtn" class="btn-back">
-            ← Tillbaka till sök & lista
-          </button>
-          <a id="mobileQuickPdfBtn" href="#" target="_blank" rel="noopener" class="btn-pdf-small">
-            📄 Original-PDF ↗
-          </a>
-        </div>
-
-        <!-- Medication Header Card -->
+        <!-- Compact Medication Title Card -->
         <div class="med-hero-card">
           <div class="med-hero-top">
             <div class="med-badges" id="detailBadges"></div>
-            <button type="button" id="toggleFavDetailBtn" class="btn-fav-detail" title="Spara som favorit">☆</button>
+            <div class="med-hero-right-btns">
+              <a id="detailPdfLink" href="#" target="_blank" rel="noopener" class="btn-pdf-small" title="Öppna original-PDF">
+                📄 PDF ↗
+              </a>
+              <button type="button" id="toggleFavDetailBtn" class="btn-fav-detail" title="Spara som favorit">☆</button>
+            </div>
           </div>
           <h1 class="med-detail-title" id="detailTitle">Läkemedelsnamn</h1>
           <div class="med-detail-meta" id="detailMeta"></div>
-
-          <div class="med-hero-actions">
-            <a id="detailPdfLink" href="#" target="_blank" rel="noopener" class="btn-primary-pdf">
-              📄 Öppna Region Skånes original-PDF (eped.se) ↗
-            </a>
-          </div>
+          <a id="mobileQuickPdfBtn" href="#" target="_blank" rel="noopener" class="hidden">PDF</a>
+          <button type="button" id="backToListBtn" class="hidden">Tillbaka</button>
         </div>
 
         <!-- Top Warnings (if present in PDF) -->

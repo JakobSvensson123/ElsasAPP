@@ -7,6 +7,8 @@
   // Application State
   const state = {
     weightKg: parseFloat(localStorage.getItem('elsa_eped_weight') || '12') || 12,
+    ageVal: parseFloat(localStorage.getItem('elsa_eped_age_val') || '2') || 2,
+    ageUnit: localStorage.getItem('elsa_eped_age_unit') || 'years',
     searchQuery: '',
     routeFilter: 'ALL',
     selectedMedId: null,
@@ -20,11 +22,17 @@
   const childWeightInput = document.getElementById('childWeightInput');
   const weightMinusBtn = document.getElementById('weightMinusBtn');
   const weightPlusBtn = document.getElementById('weightPlusBtn');
-  const activeWeightBadge = document.getElementById('activeWeightBadge');
-  const weightChips = document.querySelectorAll('.weight-chip');
+
+  const childAgeInput = document.getElementById('childAgeInput');
+  const childAgeUnit = document.getElementById('childAgeUnit');
+  const ageMinusBtn = document.getElementById('ageMinusBtn');
+  const agePlusBtn = document.getElementById('agePlusBtn');
 
   const medSearchInput = document.getElementById('medSearchInput');
   const clearSearchBtn = document.getElementById('clearSearchBtn');
+  const toggleListBtn = document.getElementById('toggleListBtn');
+  const closeListMobileBtn = document.getElementById('closeListMobileBtn');
+  const listViewSection = document.getElementById('listViewSection');
   const routeFilterBtns = document.querySelectorAll('.filter-pill');
   const listCountText = document.getElementById('listCountText');
   const medListContainer = document.getElementById('medListContainer');
@@ -241,7 +249,25 @@
     localStorage.setItem('elsa_eped_favs', JSON.stringify(Array.from(state.favorites)));
   }
 
-  // Weight Management
+  // Weight & Age Management
+  function getChildAgeInMonths() {
+    if (state.ageUnit === 'all' || state.ageVal === null || state.ageVal === undefined || isNaN(state.ageVal)) {
+      return null;
+    }
+    if (state.ageUnit === 'years') return state.ageVal * 12;
+    if (state.ageUnit === 'months') return state.ageVal;
+    if (state.ageUnit === 'days') return state.ageVal / 30;
+    return null;
+  }
+
+  function formatAgeSummary() {
+    if (state.ageUnit === 'all' || state.ageVal === null || state.ageVal === undefined || isNaN(state.ageVal)) {
+      return '';
+    }
+    const unitLabels = { years: 'år', months: 'mån', days: 'dagar' };
+    return `${fmtNum(state.ageVal, 1)} ${unitLabels[state.ageUnit] || 'år'}`;
+  }
+
   function setWeight(newWeight, updateInputField = true) {
     if (newWeight !== null && newWeight > 0 && newWeight <= 250) {
       state.weightKg = newWeight;
@@ -254,11 +280,39 @@
       childWeightInput.value = fmtNum(state.weightKg, 2);
     }
 
-    activeWeightBadge.textContent = state.weightKg ? `${fmtNum(state.weightKg, 2)} kg` : 'Ange vikt';
-    weightChips.forEach((chip) => {
-      const cw = parseFloat(chip.dataset.weight);
-      chip.classList.toggle('active', state.weightKg !== null && Math.abs(cw - state.weightKg) < 0.01);
-    });
+    if (state.selectedMedId) {
+      const med = MEDS.find((m) => m.id === state.selectedMedId);
+      if (med) {
+        renderCalculatorSections(med);
+      }
+    }
+  }
+
+  function setAge(newAgeVal, newAgeUnit, updateInputField = true) {
+    if (newAgeUnit !== undefined) {
+      state.ageUnit = newAgeUnit;
+      localStorage.setItem('elsa_eped_age_unit', state.ageUnit);
+      if (childAgeUnit) childAgeUnit.value = state.ageUnit;
+    }
+
+    if (state.ageUnit === 'all') {
+      state.ageVal = null;
+      if (updateInputField && childAgeInput) {
+        childAgeInput.value = '';
+        childAgeInput.placeholder = 'Alla';
+      }
+    } else {
+      if (childAgeInput) childAgeInput.placeholder = '–';
+      if (newAgeVal !== null && newAgeVal !== undefined && !isNaN(newAgeVal) && newAgeVal >= 0 && newAgeVal <= 365) {
+        state.ageVal = newAgeVal;
+        localStorage.setItem('elsa_eped_age_val', String(newAgeVal));
+      } else if (newAgeVal === null) {
+        state.ageVal = null;
+      }
+      if (updateInputField && childAgeInput && state.ageVal !== null) {
+        childAgeInput.value = fmtNum(state.ageVal, 1);
+      }
+    }
 
     if (state.selectedMedId) {
       const med = MEDS.find((m) => m.id === state.selectedMedId);
@@ -266,6 +320,43 @@
         renderCalculatorSections(med);
       }
     }
+  }
+
+  function openMobileList(open) {
+    if (!listViewSection) return;
+    listViewSection.classList.toggle('mobile-list-closed', !open);
+    if (toggleListBtn) {
+      toggleListBtn.classList.toggle('active', open);
+    }
+  }
+
+  function doesRegimenMatchPatient(reg, weightKg, ageMonths) {
+    // Check weight bounds if specified on the regimen
+    if (weightKg !== null && weightKg > 0) {
+      if (reg.minWeightKg !== null && reg.minWeightKg !== undefined && weightKg < reg.minWeightKg - 0.01) {
+        return false;
+      }
+      if (reg.maxWeightKg !== null && reg.maxWeightKg !== undefined && weightKg > reg.maxWeightKg + 0.01) {
+        // Note: if weight exceeds maxWeightKg, only hide if there isn't a capped adult dose on this regimen
+        // Wait: for regimens like "Barn 1 mån - 12 år, eller under 50 kg" that have maxDoseVal=400mg, we STILL want to show the capped 400mg dose at 60kg!
+      }
+    }
+
+    // Check age bounds if age is entered by the user
+    if (ageMonths !== null && ageMonths !== undefined) {
+      if (reg.minAgeMonths !== null && reg.minAgeMonths !== undefined && ageMonths < reg.minAgeMonths - 0.05) {
+        return false;
+      }
+      if (reg.maxAgeMonths !== null && reg.maxAgeMonths !== undefined && ageMonths > reg.maxAgeMonths + 0.05) {
+        return false;
+      }
+    } else if (weightKg !== null && weightKg >= 6) {
+      // Even if age is not entered, if child weighs >= 6 kg, deprioritize pure neonatal/premature (0-1 mån) regimens
+      if (reg.maxAgeMonths !== null && reg.maxAgeMonths <= 1.0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // Filter & Render Medication List
@@ -427,16 +518,55 @@
 
     let cappedByMaxDose = false;
     let cappedByMaxDay = false;
-    let maxNote = '';
+    const maxNotes = [];
 
-    // Check max per dose cap
-    if (reg.maxDoseVal && reg.maxDoseUnit && perDoseMin !== null) {
-      const capInUnit = convertMass(reg.maxDoseVal, reg.maxDoseUnit, massUnit) ?? reg.maxDoseVal;
-      if (capInUnit && perDoseMax > capInUnit) {
+    // Resolve effective maxDoseVal / maxDayVal considering weightMaxRules and ageMaxRules
+    let effMaxDoseVal = reg.maxDoseVal;
+    let effMaxDoseUnit = reg.maxDoseUnit;
+    let effMaxDayVal = reg.maxDayVal;
+    let effMaxDayUnit = reg.maxDayUnit;
+
+    if (reg.weightMaxRules && reg.weightMaxRules.length > 0) {
+      for (const r of reg.weightMaxRules) {
+        if ((r.type === 'under' && weightKg < r.weightKg) || (r.type === 'from' && weightKg >= r.weightKg)) {
+          if (r.maxDoseVal) {
+            effMaxDoseVal = r.maxDoseVal;
+            effMaxDoseUnit = r.maxDoseUnit;
+          }
+          if (r.maxDayVal) {
+            effMaxDayVal = r.maxDayVal;
+            effMaxDayUnit = r.maxDayUnit;
+          }
+        }
+      }
+    }
+
+    const ageMonths = getChildAgeInMonths();
+    if (ageMonths !== null && reg.ageMaxRules && reg.ageMaxRules.length > 0) {
+      for (const ar of reg.ageMaxRules) {
+        const minOk = ar.minAgeMonths === null || ar.minAgeMonths === undefined || ageMonths >= ar.minAgeMonths - 0.05;
+        const maxOk = ar.maxAgeMonths === null || ar.maxAgeMonths === undefined || ageMonths <= ar.maxAgeMonths + 0.05;
+        if (minOk && maxOk) {
+          if (ar.maxDoseVal) {
+            effMaxDoseVal = ar.maxDoseVal;
+            effMaxDoseUnit = ar.maxDoseUnit;
+          }
+          if (ar.maxDayVal) {
+            effMaxDayVal = ar.maxDayVal;
+            effMaxDayUnit = ar.maxDayUnit;
+          }
+        }
+      }
+    }
+
+    // 1. Check per-kg max per dose (if any)
+    if (reg.maxDosePerKg && perDoseMax !== null) {
+      const capPerKgDose = reg.maxDosePerKg * weightKg;
+      if (perDoseMax > capPerKgDose + 0.0001) {
         cappedByMaxDose = true;
-        perDoseMax = capInUnit;
-        if (perDoseMin > capInUnit) perDoseMin = capInUnit;
-        maxNote = `Maxdos per tillfälle: ${fmtNum(reg.maxDoseVal)} ${reg.maxDoseUnit}`;
+        perDoseMax = capPerKgDose;
+        if (perDoseMin > capPerKgDose) perDoseMin = capPerKgDose;
+        maxNotes.push(`Max ${fmtNum(reg.maxDosePerKg)} ${massUnit}/kg/dos`);
         if (fMin) {
           perDayMin = perDoseMin * fMin;
           perDayMax = perDoseMax * (fMax || fMin);
@@ -444,10 +574,36 @@
       }
     }
 
-    // Check max per day cap
-    if (reg.maxDayVal && reg.maxDayUnit && perDayMax !== null) {
-      const dayCapInUnit = convertMass(reg.maxDayVal, reg.maxDayUnit, massUnit) ?? reg.maxDayVal;
-      if (dayCapInUnit && perDayMax > dayCapInUnit) {
+    // 2. Check per-kg max per day (e.g. "15 - 25 mg/kg x 2 - 3, max 50 mg/kg/dygn")
+    if (reg.maxDayPerKg && perDayMax !== null) {
+      const capPerKgDay = reg.maxDayPerKg * weightKg;
+      if (perDayMax > capPerKgDay + 0.0001) {
+        cappedByMaxDay = true;
+        perDayMax = capPerKgDay;
+        if (perDayMin > capPerKgDay) perDayMin = capPerKgDay;
+        maxNotes.push(`Max dygnsdos: ${fmtNum(reg.maxDayPerKg)} ${massUnit}/kg/dygn (${fmtNum(capPerKgDay)} ${massUnit}/dygn)`);
+      }
+    }
+
+    // 3. Check absolute max per dose cap
+    if (effMaxDoseVal && effMaxDoseUnit && perDoseMin !== null) {
+      const capInUnit = convertMass(effMaxDoseVal, effMaxDoseUnit, massUnit) ?? effMaxDoseVal;
+      if (capInUnit && perDoseMax > capInUnit + 0.0001) {
+        cappedByMaxDose = true;
+        perDoseMax = capInUnit;
+        if (perDoseMin > capInUnit) perDoseMin = capInUnit;
+        maxNotes.push(`Maxdos per tillfälle: ${fmtNum(effMaxDoseVal)} ${effMaxDoseUnit}`);
+        if (fMin) {
+          perDayMin = perDoseMin * fMin;
+          perDayMax = perDoseMax * (fMax || fMin);
+        }
+      }
+    }
+
+    // 4. Check absolute max per day cap
+    if (effMaxDayVal && effMaxDayUnit && perDayMax !== null) {
+      const dayCapInUnit = convertMass(effMaxDayVal, effMaxDayUnit, massUnit) ?? effMaxDayVal;
+      if (dayCapInUnit && perDayMax > dayCapInUnit + 0.0001) {
         cappedByMaxDay = true;
         perDayMax = dayCapInUnit;
         if (perDayMin > dayCapInUnit) perDayMin = dayCapInUnit;
@@ -456,13 +612,13 @@
           if (perDoseMax > maxSingleFromDay) perDoseMax = maxSingleFromDay;
           if (perDoseMin > maxSingleFromDay) perDoseMin = maxSingleFromDay;
         }
-        maxNote = maxNote
-          ? `${maxNote} • Max dygnsdos: ${fmtNum(reg.maxDayVal)} ${reg.maxDayUnit}`
-          : `Max dygnsdos: ${fmtNum(reg.maxDayVal)} ${reg.maxDayUnit}`;
+        maxNotes.push(`Max dygnsdos: ${fmtNum(effMaxDayVal)} ${effMaxDayUnit}`);
       }
     }
 
-    // Volume calculation (mL) if medication has liquid concentration
+    const maxNote = maxNotes.join(' • ');
+
+    // Volume calculation (mL) or Tablet count (st)
     let volMin = null;
     let volMax = null;
     let volUnitLabel = 'mL';
@@ -471,31 +627,56 @@
     if (massUnit === 'mL') {
       volMin = perDoseMin;
       volMax = perDoseMax;
-    } else if (med.concValue && med.concUnit) {
+    } else if (med.isLiquid && med.concValue && med.concUnit) {
       const baseConcUnit = med.concUnit.replace('/mL', '');
-      if (med.isLiquid) {
-        const concInRegUnit = convertMass(med.concValue, baseConcUnit, massUnit) ?? (baseConcUnit.toLowerCase() === massUnit.toLowerCase() ? med.concValue : null);
-        if (concInRegUnit && concInRegUnit > 0) {
-          concUsed = `${fmtNum(med.concValue)} ${med.concUnit}`;
-          const targetMin = perDoseMin !== null ? perDoseMin : perDayMin;
-          const targetMax = perDoseMax !== null ? perDoseMax : perDayMax;
-          if (targetMin !== null) {
-            volMin = targetMin / concInRegUnit;
-            volMax = targetMax / concInRegUnit;
-            if (reg.infusionTime) {
-              volUnitLabel = `mL/${reg.infusionTime}`;
-            } else if (perDoseMin === null && perDayMin !== null) {
-              volUnitLabel = 'mL/dygn';
-            }
+      const concInRegUnit =
+        convertMass(med.concValue, baseConcUnit, massUnit) ??
+        (baseConcUnit.toLowerCase() === massUnit.toLowerCase() ? med.concValue : null);
+      if (concInRegUnit && concInRegUnit > 0) {
+        concUsed = `${fmtNum(med.concValue)} ${med.concUnit}`;
+        const targetMin = perDoseMin !== null ? perDoseMin : perDayMin;
+        const targetMax = perDoseMax !== null ? perDoseMax : perDayMax;
+        if (targetMin !== null) {
+          volMin = targetMin / concInRegUnit;
+          volMax = targetMax / concInRegUnit;
+          if (reg.infusionTime) {
+            volUnitLabel = `mL/${reg.infusionTime}`;
+          } else if (perDoseMin === null && perDayMin !== null) {
+            volUnitLabel = 'mL/dygn';
           }
         }
-      } else {
-        // Solid tablet/capsule strength
-        const tabInRegUnit = convertMass(med.concValue, baseConcUnit, massUnit) ?? (baseConcUnit.toLowerCase() === massUnit.toLowerCase() ? med.concValue : null);
-        if (tabInRegUnit && tabInRegUnit > 0 && perDoseMin !== null) {
-          concUsed = `${fmtNum(med.concValue)} ${med.concUnit}`;
-          volMin = perDoseMin / tabInRegUnit;
-          volMax = perDoseMax / tabInRegUnit;
+      }
+    } else if (!med.isLiquid && perDoseMin !== null) {
+      // Solid tablet/capsule strength(s)
+      const strengths =
+        med.solidStrengths && med.solidStrengths.length > 0
+          ? med.solidStrengths
+          : med.concValue && med.concUnit
+          ? [{ val: med.concValue, unit: med.concUnit.replace('/mL', ''), text: `${fmtNum(med.concValue)} ${med.concUnit}` }]
+          : [];
+
+      if (strengths.length > 0) {
+        // Pick the strength that gives the cleanest integer or half-tablet count for perDoseMax
+        let bestS = null;
+        let bestScore = Infinity;
+        for (const s of strengths) {
+          const sInUnit =
+            convertMass(s.val, s.unit, massUnit) ?? (s.unit.toLowerCase() === massUnit.toLowerCase() ? s.val : null);
+          if (!sInUnit || sInUnit <= 0) continue;
+          const count = perDoseMax / sInUnit;
+          const isWhole = count >= 0.99 && Math.abs(count - Math.round(count)) < 0.02;
+          const isHalf = count >= 0.49 && Math.abs(count * 2 - Math.round(count * 2)) < 0.02;
+          // Prefer 1 whole tablet first, then 2..4 whole tablets, then half tablets
+          const penalty = (isWhole ? 0 : isHalf ? 10 : 50) + Math.abs(count - 1.0);
+          if (penalty < bestScore) {
+            bestScore = penalty;
+            bestS = { ...s, sInUnit };
+          }
+        }
+        if (bestS) {
+          concUsed = bestS.text || `${fmtNum(bestS.val)} ${bestS.unit}`;
+          volMin = perDoseMin / bestS.sInUnit;
+          volMax = perDoseMax / bestS.sInUnit;
           volUnitLabel = 'st (enh)';
         }
       }
@@ -514,6 +695,7 @@
       massUnit,
       capped: cappedByMaxDose || cappedByMaxDay,
       maxNote,
+      escMaxNote: reg.escMaxNote || null,
       customFormulaText: null,
     };
   }
@@ -526,9 +708,129 @@
     return `${fmtNum(minVal)} – ${fmtNum(maxVal)} ${unit}`;
   }
 
+  function renderSingleRegimenCard(reg, w, med, showMatchBadge) {
+    const res = calculateRegimenForWeight(reg, w, med);
+    if (!res) return '';
+
+    const matchBadgeHtml = showMatchBadge ? `<span class="age-match-badge">✓ Passar ålder/vikt</span>` : '';
+
+    if (res.isHollidaySegar) {
+      const mainDoseValue = formatRange(res.perDayMin, res.perDayMax, 'mL/dygn');
+      const hourlyValue = formatRange(res.hourlyMin, res.hourlyMax, 'mL/tim');
+      const adhValue = formatRange(res.adhMin, res.adhMax, 'mL/dygn');
+      return `
+        <div class="dose-result-card ${res.capped ? 'capped' : ''}">
+          <div class="dose-result-label">
+            💧 ${escapeHtml(reg.label)} ${matchBadgeHtml}
+          </div>
+          <div class="dose-numbers-row">
+            <div class="dose-big-box vol-box">
+              <div class="dose-big-caption">Underhållsvätska (100 %)</div>
+              <div class="dose-big-value">${escapeHtml(mainDoseValue)}</div>
+            </div>
+            <div class="dose-big-box">
+              <div class="dose-big-caption">Infusionshastighet (÷ 24 tim)</div>
+              <div class="dose-big-value">${escapeHtml(hourlyValue)}</div>
+            </div>
+            <div class="dose-big-box">
+              <div class="dose-big-caption">Vid ADH-påslag (50 – 80 %)</div>
+              <div class="dose-big-value">${escapeHtml(adhValue)}</div>
+            </div>
+          </div>
+          ${
+            res.capped
+              ? `<div class="max-warning-pill">⚠️ Maxvolym tillämpad (${escapeHtml(res.maxNote)})</div>`
+              : ''
+          }
+          <div class="dose-formula-line">
+            Holliday & Segar (${fmtNum(w)} kg): ${escapeHtml(res.customFormulaText)}
+          </div>
+        </div>
+      `;
+    }
+
+    const rateStr =
+      reg.doseMin === reg.doseMax
+        ? `${fmtNum(reg.doseMin)} ${reg.unit}`
+        : `${fmtNum(reg.doseMin)} – ${fmtNum(reg.doseMax)} ${reg.unit}`;
+
+    const freqStr = reg.freqMin
+      ? reg.freqMin === reg.freqMax
+        ? `× ${reg.freqMin} / dygn`
+        : `× ${reg.freqMin}–${reg.freqMax} / dygn`
+      : '';
+
+    const mainDoseLabel = reg.infusionTime
+      ? `Infusionshastighet (per ${reg.infusionTime})`
+      : res.perDoseMin !== null
+      ? 'Dos per tillfälle'
+      : 'Total dygnsdos';
+
+    const mainDoseValue =
+      res.perDoseMin !== null
+        ? formatRange(res.perDoseMin, res.perDoseMax, res.massUnit)
+        : formatRange(res.perDayMin, res.perDayMax, `${res.massUnit}/dygn`);
+
+    const formulaText = `${fmtNum(w)} kg × ${rateStr}${
+      res.capped ? ` → Maxdos (${res.maxNote})` : ''
+    }${res.concUsed ? ` ÷ ${res.concUsed}` : ''}`;
+
+    return `
+      <div class="dose-result-card ${res.capped ? 'capped' : ''}">
+        <div class="dose-result-label">
+          🔹 ${escapeHtml(reg.label)} (${escapeHtml(rateStr)} ${escapeHtml(freqStr)}) ${matchBadgeHtml}
+        </div>
+        <div class="dose-numbers-row">
+          <div class="dose-big-box">
+            <div class="dose-big-caption">${escapeHtml(mainDoseLabel)}</div>
+            <div class="dose-big-value">${escapeHtml(mainDoseValue)}</div>
+          </div>
+          ${
+            res.volMin !== null
+              ? `
+            <div class="dose-big-box vol-box">
+              <div class="dose-big-caption">${
+                res.volUnitLabel.includes('st')
+                  ? 'Antal vid styrka ' + escapeHtml(res.concUsed)
+                  : 'Volym att ge (' + escapeHtml(res.concUsed) + ')'
+              }</div>
+              <div class="dose-big-value">${escapeHtml(formatRange(res.volMin, res.volMax, res.volUnitLabel))}</div>
+            </div>
+          `
+              : ''
+          }
+          ${
+            res.perDayMin !== null && res.perDoseMin !== null
+              ? `
+            <div class="dose-big-box">
+              <div class="dose-big-caption">Dygnsdos (${escapeHtml(freqStr)})</div>
+              <div class="dose-big-value">${escapeHtml(formatRange(res.perDayMin, res.perDayMax, res.massUnit + '/dygn'))}</div>
+            </div>
+          `
+              : ''
+          }
+        </div>
+        ${
+          res.capped
+            ? `<div class="max-warning-pill">⚠️ Maxdos tillämpad (${escapeHtml(res.maxNote)})</div>`
+            : ''
+        }
+        ${
+          res.escMaxNote
+            ? `<div class="esc-note-pill">ℹ️ ${escapeHtml(res.escMaxNote)}</div>`
+            : ''
+        }
+        <div class="dose-formula-line">
+          Uträkning: ${escapeHtml(formulaText)}
+        </div>
+      </div>
+    `;
+  }
+
   // Render Indications & Automatic Dose Calculation
   function renderIndicationsCalc(med) {
     const w = state.weightKg;
+    const ageMonths = getChildAgeInMonths();
     if (!med.indications || med.indications.length === 0) {
       indicationsCalcContainer.innerHTML = `
         <div class="indication-raw-lines">
@@ -538,125 +840,50 @@
       return;
     }
 
-    const html = med.indications
+    const sortedIndications = [...med.indications].sort((a, b) => {
+      const aHas = a.regimens && a.regimens.length > 0 ? 1 : 0;
+      const bHas = b.regimens && b.regimens.length > 0 ? 1 : 0;
+      return bHas - aHas;
+    });
+
+    const html = sortedIndications
       .map((ind) => {
         const regs = ind.regimens || [];
         let regCardsHtml = '';
 
         if (regs.length > 0 && w) {
-          regCardsHtml = `
-            <div class="regimen-calc-grid">
-              ${regs
-                .map((reg) => {
-                  const res = calculateRegimenForWeight(reg, w, med);
-                  if (!res) return '';
+          const matchingRegs = [];
+          const otherRegs = [];
+          regs.forEach((reg) => {
+            if (doesRegimenMatchPatient(reg, w, ageMonths)) {
+              matchingRegs.push(reg);
+            } else {
+              otherRegs.push(reg);
+            }
+          });
 
-                  if (res.isHollidaySegar) {
-                    const mainDoseValue = formatRange(res.perDayMin, res.perDayMax, 'mL/dygn');
-                    const hourlyValue = formatRange(res.hourlyMin, res.hourlyMax, 'mL/tim');
-                    const adhValue = formatRange(res.adhMin, res.adhMax, 'mL/dygn');
-                    return `
-                      <div class="dose-result-card ${res.capped ? 'capped' : ''}">
-                        <div class="dose-result-label">
-                          💧 ${escapeHtml(reg.label)}
-                        </div>
-                        <div class="dose-numbers-row">
-                          <div class="dose-big-box vol-box">
-                            <div class="dose-big-caption">Underhållsvätska (100 %)</div>
-                            <div class="dose-big-value">${escapeHtml(mainDoseValue)}</div>
-                          </div>
-                          <div class="dose-big-box">
-                            <div class="dose-big-caption">Infusionshastighet (dygn ÷ 24 tim)</div>
-                            <div class="dose-big-value">${escapeHtml(hourlyValue)}</div>
-                          </div>
-                          <div class="dose-big-box">
-                            <div class="dose-big-caption">Vid ADH-påslag (50 – 80 %)</div>
-                            <div class="dose-big-value">${escapeHtml(adhValue)}</div>
-                          </div>
-                        </div>
-                        ${
-                          res.capped
-                            ? `<div class="max-warning-pill">⚠️ Maxvolym tillämpad (${escapeHtml(res.maxNote)})</div>`
-                            : ''
-                        }
-                        <div class="dose-formula-line">
-                          Holliday & Segar (${fmtNum(w)} kg): ${escapeHtml(res.customFormulaText)}
-                        </div>
-                      </div>
-                    `;
-                  }
-
-                  const rateStr =
-                    reg.doseMin === reg.doseMax
-                      ? `${fmtNum(reg.doseMin)} ${reg.unit}`
-                      : `${fmtNum(reg.doseMin)} – ${fmtNum(reg.doseMax)} ${reg.unit}`;
-
-                  const freqStr = reg.freqMin
-                    ? reg.freqMin === reg.freqMax
-                      ? `× ${reg.freqMin} / dygn`
-                      : `× ${reg.freqMin}–${reg.freqMax} / dygn`
-                    : '';
-
-                  const mainDoseLabel = reg.infusionTime
-                    ? `Infusionshastighet (per ${reg.infusionTime})`
-                    : res.perDoseMin !== null
-                    ? 'Dos per tillfälle'
-                    : 'Total dygnsdos';
-
-                  const mainDoseValue =
-                    res.perDoseMin !== null
-                      ? formatRange(res.perDoseMin, res.perDoseMax, res.massUnit)
-                      : formatRange(res.perDayMin, res.perDayMax, `${res.massUnit}/dygn`);
-
-                  const formulaText = `${fmtNum(w)} kg × ${rateStr}${
-                    res.capped ? ` → Begränsad till maxdos (${res.maxNote})` : ''
-                  }${res.concUsed ? ` ÷ ${res.concUsed}` : ''}`;
-
-                  return `
-                    <div class="dose-result-card ${res.capped ? 'capped' : ''}">
-                      <div class="dose-result-label">
-                        🔹 ${escapeHtml(reg.label)} (${escapeHtml(rateStr)} ${escapeHtml(freqStr)})
-                      </div>
-                      <div class="dose-numbers-row">
-                        <div class="dose-big-box">
-                          <div class="dose-big-caption">${escapeHtml(mainDoseLabel)}</div>
-                          <div class="dose-big-value">${escapeHtml(mainDoseValue)}</div>
-                        </div>
-                        ${
-                          res.volMin !== null
-                            ? `
-                          <div class="dose-big-box vol-box">
-                            <div class="dose-big-caption">${res.volUnitLabel.includes('st') ? 'Antal vid styrka ' + escapeHtml(res.concUsed) : 'Volym att ge (' + escapeHtml(res.concUsed) + ')'}</div>
-                            <div class="dose-big-value">${escapeHtml(formatRange(res.volMin, res.volMax, res.volUnitLabel))}</div>
-                          </div>
-                        `
-                            : ''
-                        }
-                        ${
-                          res.perDayMin !== null && res.perDoseMin !== null
-                            ? `
-                          <div class="dose-big-box">
-                            <div class="dose-big-caption">Dygnsdos (${escapeHtml(freqStr)})</div>
-                            <div class="dose-big-value">${escapeHtml(formatRange(res.perDayMin, res.perDayMax, res.massUnit + '/dygn'))}</div>
-                          </div>
-                        `
-                            : ''
-                        }
-                      </div>
-                      ${
-                        res.capped
-                          ? `<div class="max-warning-pill">⚠️ Maxdos tillämpad (${escapeHtml(res.maxNote)})</div>`
-                          : ''
-                      }
-                      <div class="dose-formula-line">
-                        Uträkning: ${escapeHtml(formulaText)}
-                      </div>
-                    </div>
-                  `;
-                })
-                .join('')}
-            </div>
-          `;
+          // If all regimens were filtered out (e.g. neonatal-only medication for a 2-year-old), show all of them so nothing is hidden
+          if (matchingRegs.length > 0 && otherRegs.length > 0) {
+            regCardsHtml = `
+              <div class="regimen-calc-grid">
+                ${matchingRegs.map((reg) => renderSingleRegimenCard(reg, w, med, true)).join('')}
+              </div>
+              <details class="other-ages-details">
+                <summary>Visa ${otherRegs.length} övriga ålders-/viktgrupper i denna indikation</summary>
+                <div class="regimen-calc-grid">
+                  ${otherRegs.map((reg) => renderSingleRegimenCard(reg, w, med, false)).join('')}
+                </div>
+              </details>
+            `;
+          } else {
+            const listToRender = matchingRegs.length > 0 ? matchingRegs : regs;
+            const showBadge = matchingRegs.length > 0 && ageMonths !== null && regs.some((r) => r.minAgeMonths !== null || r.maxAgeMonths !== null);
+            regCardsHtml = `
+              <div class="regimen-calc-grid">
+                ${listToRender.map((reg) => renderSingleRegimenCard(reg, w, med, showBadge)).join('')}
+              </div>
+            `;
+          }
         }
 
         const rawLinesHtml = (ind.lines || [])
@@ -898,8 +1125,11 @@
   }
 
   function renderCalculatorSections(med) {
+    const ageStr = formatAgeSummary();
     calcWeightSubtitle.innerHTML = state.weightKg
-      ? `Beräknat för barnets vikt: <strong>${fmtNum(state.weightKg)} kg</strong>`
+      ? `Beräknat för: <strong>${fmtNum(state.weightKg)} kg</strong>${
+          ageStr ? ` • Ålder: <strong>${escapeHtml(ageStr)}</strong>` : ''
+        }`
       : `<span style="color:#dc2626;">Ange barnets vikt i kg högst upp för att räkna ut dos</span>`;
 
     renderIndicationsCalc(med);
@@ -908,7 +1138,7 @@
   }
 
   // Select and Display Medication
-  function selectMedication(medId, openMobileView = true) {
+  function selectMedication(medId, closeMobileListOnSelect = true) {
     const med = MEDS.find((m) => m.id === medId);
     if (!med) return;
 
@@ -918,9 +1148,8 @@
     emptyDetailState.classList.add('hidden');
     medDetailContent.classList.remove('hidden');
 
-    if (openMobileView) {
-      document.body.classList.add('mobile-detail-open');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (closeMobileListOnSelect) {
+      openMobileList(false);
     }
 
     // Header & Badges
@@ -937,12 +1166,12 @@
 
     detailTitle.textContent = med.title;
     detailMeta.textContent = `Substans: ${med.substance}${
-      med.brands && med.brands.length ? ' • Exempel: ' + med.brands.join(', ') : ''
-    } • Senast granskad/ändrad i Region Skåne: ${med.date || 'Se PDF'}`;
+      med.brands && med.brands.length ? ' • Ex: ' + med.brands.join(', ') : ''
+    } • Granskad: ${med.date || 'Se PDF'}`;
 
     detailPdfLink.href = med.pdfUrl;
     footerPdfLink.href = med.pdfUrl;
-    mobileQuickPdfBtn.href = med.pdfUrl;
+    if (mobileQuickPdfBtn) mobileQuickPdfBtn.href = med.pdfUrl;
 
     detailConcPill.textContent = med.concText || 'Se dosering';
 
@@ -988,7 +1217,7 @@
     tabPanelCustom.classList.toggle('hidden', tabName !== 'custom');
   }
 
-  // Event Listeners
+  // Event Listeners: Weight
   childWeightInput.addEventListener('input', () => {
     const val = parseInputNum(childWeightInput.value);
     setWeight(val, false);
@@ -1006,16 +1235,94 @@
     setWeight(Math.min(150, Math.round((cur + step) * 10) / 10), true);
   });
 
-  weightChips.forEach((chip) => {
-    chip.addEventListener('click', () => {
-      setWeight(parseFloat(chip.dataset.weight), true);
+  // Event Listeners: Age
+  if (childAgeInput) {
+    childAgeInput.addEventListener('input', () => {
+      const cleaned = String(childAgeInput.value).trim().replace(',', '.');
+      if (!cleaned) {
+        setAge(null, state.ageUnit, false);
+        return;
+      }
+      const val = parseFloat(cleaned);
+      if (!isNaN(val) && val >= 0) {
+        if (state.ageUnit === 'all') {
+          setAge(val, 'years', false);
+        } else {
+          setAge(val, state.ageUnit, false);
+        }
+      }
     });
+  }
+
+  if (childAgeUnit) {
+    childAgeUnit.addEventListener('change', () => {
+      const newUnit = childAgeUnit.value;
+      if (newUnit === 'all') {
+        setAge(null, 'all', true);
+      } else {
+        const curVal = state.ageVal !== null ? state.ageVal : 2;
+        setAge(curVal, newUnit, true);
+      }
+    });
+  }
+
+  if (ageMinusBtn) {
+    ageMinusBtn.addEventListener('click', () => {
+      if (state.ageUnit === 'all') {
+        setAge(1, 'years', true);
+        return;
+      }
+      const cur = state.ageVal !== null ? state.ageVal : 1;
+      const step = state.ageUnit === 'years' && cur <= 2 ? 0.5 : 1;
+      setAge(Math.max(0, Math.round((cur - step) * 10) / 10), state.ageUnit, true);
+    });
+  }
+
+  if (agePlusBtn) {
+    agePlusBtn.addEventListener('click', () => {
+      if (state.ageUnit === 'all') {
+        setAge(1, 'years', true);
+        return;
+      }
+      const cur = state.ageVal !== null ? state.ageVal : 1;
+      const maxVal = state.ageUnit === 'years' ? 18 : state.ageUnit === 'months' ? 36 : 90;
+      const step = state.ageUnit === 'years' && cur < 2 ? 0.5 : 1;
+      setAge(Math.min(maxVal, Math.round((cur + step) * 10) / 10), state.ageUnit, true);
+    });
+  }
+
+  // Event Listeners: Search & Mobile List Toggle
+  medSearchInput.addEventListener('focus', () => {
+    openMobileList(true);
   });
 
   medSearchInput.addEventListener('input', () => {
     state.searchQuery = medSearchInput.value;
     clearSearchBtn.classList.toggle('hidden', !state.searchQuery);
+    openMobileList(true);
     renderMedList();
+
+    // Live-select the top matching medication while typing so calculations update immediately below!
+    const filtered = getFilteredMeds();
+    if (filtered.length > 0 && state.searchQuery.trim().length > 0) {
+      if (!filtered.some((m) => m.id === state.selectedMedId)) {
+        selectMedication(filtered[0].id, false);
+      }
+    }
+  });
+
+  medSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const filtered = getFilteredMeds();
+      if (filtered.length > 0) {
+        selectMedication(filtered[0].id, true);
+      }
+      openMobileList(false);
+      medSearchInput.blur();
+    } else if (e.key === 'Escape') {
+      openMobileList(false);
+      medSearchInput.blur();
+    }
   });
 
   clearSearchBtn.addEventListener('click', () => {
@@ -1026,10 +1333,24 @@
     medSearchInput.focus();
   });
 
+  if (toggleListBtn) {
+    toggleListBtn.addEventListener('click', () => {
+      const isClosed = listViewSection.classList.contains('mobile-list-closed');
+      openMobileList(isClosed);
+    });
+  }
+
+  if (closeListMobileBtn) {
+    closeListMobileBtn.addEventListener('click', () => {
+      openMobileList(false);
+    });
+  }
+
   routeFilterBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       state.routeFilter = btn.dataset.route;
       routeFilterBtns.forEach((b) => b.classList.toggle('active', b === btn));
+      openMobileList(true);
       renderMedList();
     });
   });
@@ -1041,12 +1362,14 @@
     }
   });
 
-  backToListBtn.addEventListener('click', () => {
-    document.body.classList.remove('mobile-detail-open');
-  });
+  if (backToListBtn) {
+    backToListBtn.addEventListener('click', () => {
+      openMobileList(true);
+    });
+  }
 
   homeLogoBtn.addEventListener('click', () => {
-    document.body.classList.remove('mobile-detail-open');
+    openMobileList(true);
   });
 
   toggleFavDetailBtn.addEventListener('click', () => {
@@ -1112,21 +1435,18 @@
   }
 
   // Initialize App
-  const APP_VERSION = 'v1.1 (Vätske- & Maxdosfix)';
+  const APP_VERSION = 'v1.2';
 
   function init() {
-    headerStats.textContent = `${MEDS.length} instruktioner • ${APP_VERSION}`;
+    headerStats.textContent = `${MEDS.length} instr.`;
     setWeight(state.weightKg, true);
+    setAge(state.ageVal, state.ageUnit, true);
     renderMedList();
 
-    // Pre-select Paracetamol oral 24 mg/mL (Alvedon) on desktop so the user immediately sees the calculator in action
+    // Always pre-select a medication on both mobile and desktop so calculations are immediately visible
     const defaultMed = MEDS.find((m) => m.id.startsWith('3428_')) || MEDS[0];
     if (defaultMed) {
-      const isMobile = window.matchMedia('(max-width: 900px)').matches;
-      selectMedication(defaultMed.id, !isMobile);
-      if (isMobile) {
-        document.body.classList.remove('mobile-detail-open');
-      }
+      selectMedication(defaultMed.id, true);
     }
   }
 
