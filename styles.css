@@ -1215,6 +1215,152 @@ body {
   margin-left: 6px;
 }
 
+.age-mismatch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+/* Full-width Green / Red Fit Bar inside Dose Result Cards */
+.fit-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: -12px -14px 8px -14px;
+  padding: 5px 12px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+}
+
+.fit-status-bar.fit {
+  background: #059669;
+  color: #ffffff;
+}
+
+.fit-status-bar.mismatch {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.dose-result-card.mismatch {
+  background: #fef2f2;
+  border: 2px solid #f87171;
+}
+
+.dose-result-card.mismatch .dose-result-label {
+  color: #991b1b;
+}
+
+.dose-result-card.mismatch .dose-big-box.vol-box {
+  background: #dc2626;
+  border-color: #b91c1c;
+}
+
+/* Top Red Banner when an Indication or Medication does NOT fit the child's age/weight */
+.med-mismatch-banner {
+  background: #dc2626;
+  color: #ffffff;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);
+}
+
+/* Live App Update Toast Banner */
+.update-toast-banner {
+  background: #059669;
+  color: #ffffff;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 101;
+}
+
+.btn-apply-update {
+  background: #ffffff;
+  color: #065f46;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Newborn Quick-Toggle Chip & Consistency Alert */
+.age-label-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-newborn-chip {
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+
+.btn-newborn-chip.active {
+  background: #0d9488;
+  border-color: #0f766e;
+  color: #ffffff;
+}
+
+.patient-consistency-alert {
+  max-width: 1360px;
+  margin: 5px auto 0;
+  background: #fef2f2;
+  border: 1.5px solid #f87171;
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.btn-consistency-fix {
+  background: #dc2626;
+  color: #ffffff;
+  border: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .esc-note-pill {
   display: inline-block;
   margin-top: 5px;
@@ -1229,16 +1375,16 @@ body {
 
 .other-ages-details {
   margin-top: 6px;
-  border: 1px dashed #cbd5e1;
+  border: 1.5px dashed #fca5a5;
   border-radius: 9px;
-  background: #f8fafc;
+  background: #fff5f5;
   padding: 6px 10px;
 }
 
 .other-ages-details summary {
   font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--primary);
+  font-weight: 800;
+  color: #b91c1c;
   cursor: pointer;
   user-select: none;
 }
@@ -1263,12 +1409,23 @@ body {
     justify-content: center;
   }
 
+  /* When the medication list is opened on mobile, collapse the weight/age boxes above it and make the list tall (75vh) */
+  body.mobile-list-open .patient-controls-row,
+  body.mobile-list-open .patient-consistency-alert {
+    display: none !important;
+  }
+
+  body.mobile-list-open .top-search-row {
+    margin-top: 0;
+  }
+
   .panel-list {
     height: auto;
-    max-height: 40vh;
+    min-height: 62vh;
+    max-height: 76vh;
     position: static;
     border: 2px solid var(--primary);
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.18);
   }
 
   .panel-list.mobile-list-closed {

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b4f9c" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Elsas ePed v1.2 – Barnläkemedel &amp; Dosräknare</title>
+  <title>Elsas ePed v1.3 – Barnläkemedel &amp; Dosräknare</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -49,9 +49,15 @@
         <span>Kom ihåg mig på denna telefon</span>
       </label>
       <div style="margin-top: 14px; font-size: 0.72rem; color: #94a3b8; font-weight: 600;">
-        Version 1.2 – Mobilvänlig &amp; Maxdosfix
+        Version 1.3 – Ålders-/viktvarning &amp; Nyföddskontroll
       </div>
     </div>
+  </div>
+
+  <!-- Live App Update Banner (Shown automatically when a new deploy is available) -->
+  <div id="updateToastBanner" class="update-toast-banner hidden" role="status" aria-live="polite">
+    <span>🔄 Ny uppdatering av <strong>Elsas ePed</strong> finns tillgänglig!</span>
+    <button type="button" id="applyUpdateBtn" class="btn-apply-update">Uppdatera nu</button>
   </div>
 
   <!-- Ultra-Compact Top App Header -->
@@ -61,7 +67,7 @@
         <img src="icon.svg" alt="Elsas ePed" class="brand-icon" />
         <div class="brand-text-wrap">
           <span class="brand-title">Elsas ePed</span>
-          <span class="version-pill" title="Version 1.2: Mobil-UI, Åldersval, Maxdos- & Vätskefix">v1.2</span>
+          <span class="version-pill" title="Version 1.3: Röd/grön ålders- & viktindikator, Nyföddskontroll, Större lista & Auto-uppdatering">v1.3</span>
           <span class="brand-subtitle" id="headerStats">943 instr.</span>
         </div>
       </div>
@@ -74,7 +80,7 @@
 
     <!-- Compact Patient Bar (Weight + Age below it) & Always-Accessible Search -->
     <div class="weight-bar">
-      <div class="patient-controls-row">
+      <div class="patient-controls-row" id="patientControlsRow">
         <!-- Weight Adjuster -->
         <div class="patient-control-box">
           <label for="childWeightInput" class="weight-label">⚖️ Barnets vikt</label>
@@ -96,9 +102,14 @@
           </div>
         </div>
 
-        <!-- Age Adjuster (Below weight on mobile) -->
+        <!-- Age Adjuster (Below weight on mobile, with Newborn quick-toggle) -->
         <div class="patient-control-box">
-          <label for="childAgeInput" class="weight-label">👶 Barnets ålder</label>
+          <div class="age-label-group">
+            <label for="childAgeInput" class="weight-label">👶 Ålder</label>
+            <button type="button" id="newbornToggleBtn" class="btn-newborn-chip" title="Växla Nyfödd (0–28 dagar)">
+              Nyfödd ≤28d
+            </button>
+          </div>
           <div class="weight-input-group">
             <button type="button" class="weight-step-btn" id="ageMinusBtn" aria-label="Minska ålder">−</button>
             <div class="age-field-wrap">
@@ -122,6 +133,9 @@
           </div>
         </div>
       </div>
+
+      <!-- Newborn / Weight-Age Consistency Alert (if weight looks newborn but age is years, or vice versa) -->
+      <div id="patientConsistencyAlert" class="patient-consistency-alert hidden"></div>
 
       <!-- Compact Search Bar right inside top bar so calculations stay visible below -->
       <div class="top-search-row">

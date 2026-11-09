@@ -5,9 +5,11 @@
   const MEDS = DATA.medications || [];
 
   // Application State
+  const savedAgeRaw = localStorage.getItem('elsa_eped_age_val');
+  const parsedSavedAge = savedAgeRaw !== null && savedAgeRaw !== '' ? parseFloat(savedAgeRaw) : 2;
   const state = {
     weightKg: parseFloat(localStorage.getItem('elsa_eped_weight') || '12') || 12,
-    ageVal: parseFloat(localStorage.getItem('elsa_eped_age_val') || '2') || 2,
+    ageVal: !isNaN(parsedSavedAge) && parsedSavedAge >= 0 ? parsedSavedAge : 2,
     ageUnit: localStorage.getItem('elsa_eped_age_unit') || 'years',
     searchQuery: '',
     routeFilter: 'ALL',
@@ -27,6 +29,11 @@
   const childAgeUnit = document.getElementById('childAgeUnit');
   const ageMinusBtn = document.getElementById('ageMinusBtn');
   const agePlusBtn = document.getElementById('agePlusBtn');
+  const newbornToggleBtn = document.getElementById('newbornToggleBtn');
+  const patientConsistencyAlert = document.getElementById('patientConsistencyAlert');
+
+  const updateToastBanner = document.getElementById('updateToastBanner');
+  const applyUpdateBtn = document.getElementById('applyUpdateBtn');
 
   const medSearchInput = document.getElementById('medSearchInput');
   const clearSearchBtn = document.getElementById('clearSearchBtn');
@@ -255,12 +262,54 @@
     return null;
   }
 
+  function isChildNewborn() {
+    const m = getChildAgeInMonths();
+    return m !== null && m < 0.99;
+  }
+
   function formatAgeSummary() {
     if (state.ageUnit === 'all' || state.ageVal === null || state.ageVal === undefined || isNaN(state.ageVal)) {
       return '';
     }
     const unitLabels = { years: 'år', months: 'mån', days: 'dagar' };
-    return `${fmtNum(state.ageVal, 1)} ${unitLabels[state.ageUnit] || 'år'}`;
+    const base = `${fmtNum(state.ageVal, 1)} ${unitLabels[state.ageUnit] || 'år'}`;
+    return isChildNewborn() ? `Nyfödd (${base})` : base;
+  }
+
+  function updateNewbornAndConsistencyUI() {
+    const newborn = isChildNewborn();
+    if (newbornToggleBtn) {
+      newbornToggleBtn.classList.toggle('active', newborn);
+      newbornToggleBtn.textContent = newborn ? '✓ Nyfödd ≤28d' : 'Nyfödd ≤28d';
+    }
+
+    if (!patientConsistencyAlert) return;
+    const w = state.weightKg;
+    const m = getChildAgeInMonths();
+
+    if (w !== null && m !== null) {
+      if (w <= 4.2 && m >= 2.0) {
+        patientConsistencyAlert.classList.remove('hidden');
+        patientConsistencyAlert.innerHTML = `
+          <span>⚠️ Låg vikt (<strong>${fmtNum(w)} kg</strong>) men ålder är satt till <strong>${escapeHtml(formatAgeSummary())}</strong>. Är barnet nyfött?</span>
+          <button type="button" class="btn-consistency-fix" id="quickSetNewbornBtn">Växla till Nyfödd</button>
+        `;
+        const btn = document.getElementById('quickSetNewbornBtn');
+        if (btn) btn.addEventListener('click', () => setAge(7, 'days', true));
+        return;
+      } else if (w >= 6.5 && m < 0.99) {
+        patientConsistencyAlert.classList.remove('hidden');
+        patientConsistencyAlert.innerHTML = `
+          <span>⚠️ Hög vikt (<strong>${fmtNum(w)} kg</strong>) för <strong>${escapeHtml(formatAgeSummary())}</strong>. Är barnet äldre än 1 mån?</span>
+          <button type="button" class="btn-consistency-fix" id="quickSetOlderBtn">Växla till Barn (1 år)</button>
+        `;
+        const btn = document.getElementById('quickSetOlderBtn');
+        if (btn) btn.addEventListener('click', () => setAge(1, 'years', true));
+        return;
+      }
+    }
+    patientConsistencyAlert.classList.add('hidden');
+    patientConsistencyAlert.innerHTML = '';
   }
 
   function setWeight(newWeight, updateInputField = true) {
@@ -274,6 +323,8 @@
     if (updateInputField && state.weightKg !== null) {
       childWeightInput.value = fmtNum(state.weightKg, 2);
     }
+
+    updateNewbornAndConsistencyUI();
 
     if (state.selectedMedId) {
       const med = MEDS.find((m) => m.id === state.selectedMedId);
@@ -309,6 +360,8 @@
       }
     }
 
+    updateNewbornAndConsistencyUI();
+
     if (state.selectedMedId) {
       const med = MEDS.find((m) => m.id === state.selectedMedId);
       if (med) {
@@ -320,38 +373,97 @@
   function openMobileList(open) {
     if (!listViewSection) return;
     listViewSection.classList.toggle('mobile-list-closed', !open);
+    document.body.classList.toggle('mobile-list-open', open);
     if (toggleListBtn) {
       toggleListBtn.classList.toggle('active', open);
     }
   }
 
-  function doesRegimenMatchPatient(reg, weightKg, ageMonths) {
-    // Check weight bounds if specified on the regimen
+  function formatMonthsBound(m) {
+    if (m === null || m === undefined) return '';
+    if (m < 0.99) {
+      const d = Math.round(m * 30);
+      return `${d} dagar`;
+    }
+    if (m < 12 || m % 12 !== 0) {
+      return `${fmtNum(m, 0)} mån`;
+    }
+    return `${fmtNum(m / 12, 0)} år`;
+  }
+
+  function describeRegimenBounds(reg) {
+    const parts = [];
+    const minA = reg.minAgeMonths;
+    const maxA = reg.maxAgeMonths;
+    if (minA !== null && minA !== undefined && maxA !== null && maxA !== undefined) {
+      if (minA === 0 && maxA <= 0.98) {
+        const maxDays = Math.round(maxA * 30);
+        parts.push(maxDays < 28 ? `Nyfödda 0–${maxDays} dagar` : 'Nyfödda (0–28 dagar)');
+      } else if (maxA <= 0.98) {
+        parts.push(`Nyfödda ${Math.round(minA * 30)}–${Math.round(maxA * 30)} dagar`);
+      } else {
+        parts.push(`${formatMonthsBound(minA)} – ${formatMonthsBound(maxA === 1.99 ? 1 : maxA)}`);
+      }
+    } else if (minA !== null && minA !== undefined) {
+      parts.push(`Från ${formatMonthsBound(minA)}`);
+    } else if (maxA !== null && maxA !== undefined) {
+      parts.push(`Under ${formatMonthsBound(maxA)}`);
+    }
+
+    if (reg.minWeightKg !== null && reg.minWeightKg !== undefined && reg.maxWeightKg !== null && reg.maxWeightKg !== undefined) {
+      parts.push(`${fmtNum(reg.minWeightKg)}–${fmtNum(reg.maxWeightKg)} kg`);
+    } else if (reg.minWeightKg !== null && reg.minWeightKg !== undefined) {
+      parts.push(`Från ${fmtNum(reg.minWeightKg)} kg`);
+    } else if (reg.maxWeightKg !== null && reg.maxWeightKg !== undefined && !reg.absorbedUpperCap) {
+      parts.push(`Under ${fmtNum(reg.maxWeightKg)} kg`);
+    }
+    return parts.join(', ');
+  }
+
+  function evaluateRegimenFit(reg, weightKg, ageMonths, allRegsInInd) {
+    const reasons = [];
+    const boundsDesc = describeRegimenBounds(reg);
+
+    // 1. Check weight bounds
     if (weightKg !== null && weightKg > 0) {
       if (reg.minWeightKg !== null && reg.minWeightKg !== undefined && weightKg < reg.minWeightKg - 0.01) {
-        return false;
+        reasons.push(`Kräver minst ${fmtNum(reg.minWeightKg)} kg`);
       }
       if (reg.maxWeightKg !== null && reg.maxWeightKg !== undefined && weightKg > reg.maxWeightKg + 0.01) {
-        // Note: if weight exceeds maxWeightKg, only hide if there isn't a capped adult dose on this regimen
-        // Wait: for regimens like "Barn 1 mån - 12 år, eller under 50 kg" that have maxDoseVal=400mg, we STILL want to show the capped 400mg dose at 60kg!
+        // Ignore maxWeightKg only if this regimen absorbed an upper fixed cap (e.g. Cefixim 400 mg from 50 kg)
+        // AND no other regimen in this indication covers weightKg
+        const anotherCoversWeight = (allRegsInInd || []).some(
+          (other) => other !== reg && (other.minWeightKg === null || weightKg >= other.minWeightKg) && (other.maxWeightKg === null || weightKg <= other.maxWeightKg)
+        );
+        if (!reg.absorbedUpperCap || anotherCoversWeight) {
+          reasons.push(`Gäller under ${fmtNum(reg.maxWeightKg)} kg`);
+        }
       }
     }
 
-    // Check age bounds if age is entered by the user
+    // 2. Check age bounds
     if (ageMonths !== null && ageMonths !== undefined) {
-      if (reg.minAgeMonths !== null && reg.minAgeMonths !== undefined && ageMonths < reg.minAgeMonths - 0.05) {
-        return false;
-      }
-      if (reg.maxAgeMonths !== null && reg.maxAgeMonths !== undefined && ageMonths > reg.maxAgeMonths + 0.05) {
-        return false;
+      const minA = reg.minAgeMonths;
+      const maxA = reg.maxAgeMonths;
+      // If regimen absorbed an upper adult/teen cap (e.g. "Barn över 12 år, eller från 50 kg: 400 mg"), allow up to 18 år (216 mån)
+      const effectiveMaxA = reg.absorbedUpperCap && maxA && maxA >= 120 ? 216.0 : maxA;
+
+      if (minA !== null && minA !== undefined && ageMonths < minA - 0.02) {
+        reasons.push(`Gäller ${boundsDesc || 'från ' + formatMonthsBound(minA)}`);
+      } else if (effectiveMaxA !== null && effectiveMaxA !== undefined && ageMonths > effectiveMaxA + 0.02) {
+        reasons.push(`Gäller ${boundsDesc || 'upp till ' + formatMonthsBound(effectiveMaxA)}`);
       }
     } else if (weightKg !== null && weightKg >= 6) {
-      // Even if age is not entered, if child weighs >= 6 kg, deprioritize pure neonatal/premature (0-1 mån) regimens
-      if (reg.maxAgeMonths !== null && reg.maxAgeMonths <= 1.0) {
-        return false;
+      if (reg.maxAgeMonths !== null && reg.maxAgeMonths !== undefined && reg.maxAgeMonths <= 0.99) {
+        reasons.push('Gäller nyfödda (0–28 dagar)');
       }
     }
-    return true;
+
+    return {
+      matches: reasons.length === 0,
+      boundsDesc: boundsDesc || 'Alla åldrar/vikter',
+      reasonText: reasons.join(' • ') || boundsDesc,
+    };
   }
 
   // Filter & Render Medication List
@@ -703,20 +815,33 @@
     return `${fmtNum(minVal)} – ${fmtNum(maxVal)} ${unit}`;
   }
 
-  function renderSingleRegimenCard(reg, w, med, showMatchBadge) {
+  function renderSingleRegimenCard(reg, w, med, fitInfo) {
     const res = calculateRegimenForWeight(reg, w, med);
     if (!res) return '';
 
-    const matchBadgeHtml = showMatchBadge ? `<span class="age-match-badge">✓ Passar ålder/vikt</span>` : '';
+    const isMismatch = fitInfo && !fitInfo.matches;
+    const statusBarHtml = fitInfo
+      ? isMismatch
+        ? `<div class="fit-status-bar mismatch"><span>⛔ Passar EJ ålder/vikt</span><span>${escapeHtml(fitInfo.reasonText)}</span></div>`
+        : `<div class="fit-status-bar fit"><span>✓ Passar ålder/vikt</span><span>${escapeHtml(fitInfo.boundsDesc)}</span></div>`
+      : '';
+
+    const cardClasses = ['dose-result-card'];
+    if (isMismatch) {
+      cardClasses.push('mismatch');
+    } else if (res.capped) {
+      cardClasses.push('capped');
+    }
 
     if (res.isHollidaySegar) {
       const mainDoseValue = formatRange(res.perDayMin, res.perDayMax, 'mL/dygn');
       const hourlyValue = formatRange(res.hourlyMin, res.hourlyMax, 'mL/tim');
       const adhValue = formatRange(res.adhMin, res.adhMax, 'mL/dygn');
       return `
-        <div class="dose-result-card ${res.capped ? 'capped' : ''}">
+        <div class="${cardClasses.join(' ')}">
+          ${statusBarHtml}
           <div class="dose-result-label">
-            💧 ${escapeHtml(reg.label)} ${matchBadgeHtml}
+            💧 ${escapeHtml(reg.label)}
           </div>
           <div class="dose-numbers-row">
             <div class="dose-big-box vol-box">
@@ -771,9 +896,10 @@
     }${res.concUsed ? ` ÷ ${res.concUsed}` : ''}`;
 
     return `
-      <div class="dose-result-card ${res.capped ? 'capped' : ''}">
+      <div class="${cardClasses.join(' ')}">
+        ${statusBarHtml}
         <div class="dose-result-label">
-          🔹 ${escapeHtml(reg.label)} (${escapeHtml(rateStr)} ${escapeHtml(freqStr)}) ${matchBadgeHtml}
+          🔹 ${escapeHtml(reg.label)} (${escapeHtml(rateStr)} ${escapeHtml(freqStr)})
         </div>
         <div class="dose-numbers-row">
           <div class="dose-big-box">
@@ -826,6 +952,7 @@
   function renderIndicationsCalc(med) {
     const w = state.weightKg;
     const ageMonths = getChildAgeInMonths();
+    const ageStr = formatAgeSummary();
     if (!med.indications || med.indications.length === 0) {
       indicationsCalcContainer.innerHTML = `
         <div class="indication-raw-lines">
@@ -847,35 +974,44 @@
         let regCardsHtml = '';
 
         if (regs.length > 0 && w) {
-          const matchingRegs = [];
-          const otherRegs = [];
+          const matchingItems = [];
+          const mismatchItems = [];
           regs.forEach((reg) => {
-            if (doesRegimenMatchPatient(reg, w, ageMonths)) {
-              matchingRegs.push(reg);
+            const fitInfo = evaluateRegimenFit(reg, w, ageMonths, regs);
+            if (fitInfo.matches) {
+              matchingItems.push({ reg, fitInfo });
             } else {
-              otherRegs.push(reg);
+              mismatchItems.push({ reg, fitInfo });
             }
           });
 
-          // If all regimens were filtered out (e.g. neonatal-only medication for a 2-year-old), show all of them so nothing is hidden
-          if (matchingRegs.length > 0 && otherRegs.length > 0) {
+          if (matchingItems.length > 0 && mismatchItems.length > 0) {
             regCardsHtml = `
               <div class="regimen-calc-grid">
-                ${matchingRegs.map((reg) => renderSingleRegimenCard(reg, w, med, true)).join('')}
+                ${matchingItems.map((item) => renderSingleRegimenCard(item.reg, w, med, item.fitInfo)).join('')}
               </div>
               <details class="other-ages-details">
-                <summary>Visa ${otherRegs.length} övriga ålders-/viktgrupper i denna indikation</summary>
+                <summary>⛔ Visa ${mismatchItems.length} doseringar som EJ passar vald ålder/vikt</summary>
                 <div class="regimen-calc-grid">
-                  ${otherRegs.map((reg) => renderSingleRegimenCard(reg, w, med, false)).join('')}
+                  ${mismatchItems.map((item) => renderSingleRegimenCard(item.reg, w, med, item.fitInfo)).join('')}
                 </div>
               </details>
             `;
+          } else if (matchingItems.length === 0 && mismatchItems.length > 0) {
+            // None of the regimens in this indication fit the child's age/weight -> show prominent red warning banner + red cards!
+            const patientLabel = `${fmtNum(w)} kg${ageStr ? ', ' + ageStr : ''}`;
+            regCardsHtml = `
+              <div class="med-mismatch-banner">
+                <span>⛔ Passar EJ barnets ålder/vikt (${escapeHtml(patientLabel)}) – denna indikation gäller en annan ålders-/viktgrupp!</span>
+              </div>
+              <div class="regimen-calc-grid">
+                ${mismatchItems.map((item) => renderSingleRegimenCard(item.reg, w, med, item.fitInfo)).join('')}
+              </div>
+            `;
           } else {
-            const listToRender = matchingRegs.length > 0 ? matchingRegs : regs;
-            const showBadge = matchingRegs.length > 0 && ageMonths !== null && regs.some((r) => r.minAgeMonths !== null || r.maxAgeMonths !== null);
             regCardsHtml = `
               <div class="regimen-calc-grid">
-                ${listToRender.map((reg) => renderSingleRegimenCard(reg, w, med, showBadge)).join('')}
+                ${matchingItems.map((item) => renderSingleRegimenCard(item.reg, w, med, item.fitInfo)).join('')}
               </div>
             `;
           }
@@ -1286,6 +1422,18 @@
     });
   }
 
+  if (newbornToggleBtn) {
+    newbornToggleBtn.addEventListener('click', () => {
+      if (isChildNewborn()) {
+        // Switch back to older child (e.g. 2 år)
+        setAge(2, 'years', true);
+      } else {
+        // Switch to newborn (7 dagar)
+        setAge(7, 'days', true);
+      }
+    });
+  }
+
   // Event Listeners: Search & Mobile List Toggle
   medSearchInput.addEventListener('focus', () => {
     openMobileList(true);
@@ -1391,13 +1539,61 @@
     el.addEventListener('change', updateCustomCalculatorResult);
   });
 
-  // Register Service Worker for Offline Caching
+  // Register Service Worker & Live Update Detection for Installed Phones
+  let pendingWorker = null;
+  function showUpdateBanner(worker) {
+    pendingWorker = worker;
+    if (updateToastBanner) {
+      updateToastBanner.classList.remove('hidden');
+    }
+  }
+
+  if (applyUpdateBtn) {
+    applyUpdateBtn.addEventListener('click', () => {
+      if (pendingWorker) {
+        pendingWorker.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        window.location.reload();
+      }
+    });
+  }
+
   if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker
+      .register('./sw.js')
+      .then((reg) => {
+        if (reg.waiting) {
+          showUpdateBanner(reg.waiting);
+        }
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateBanner(newWorker);
+            }
+          });
+        });
+
+        // Check for updates whenever the user opens/switches back to the app on their phone
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            reg.update().catch(() => {});
+          }
+        });
+      })
+      .catch(() => {});
   }
 
   // Initialize App
-  const APP_VERSION = 'v1.2';
+  const APP_VERSION = 'v1.3';
 
   function init() {
     headerStats.textContent = `${MEDS.length} instr.`;

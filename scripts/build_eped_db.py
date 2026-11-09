@@ -158,58 +158,133 @@ def clean_pdf_text(s: str) -> str:
     return s.strip()
 
 
-def parse_age_weight_bounds(text_str: str):
-    t = (text_str or "").lower()
+def parse_age_weight_bounds(label_str: str, line_str: str = "", ind_title: str = "", med_title: str = ""):
+    t_label = (label_str or "").lower()
+    t_ind = (ind_title or "").lower()
+    t_med = (med_title or "").lower()
+    t_full = f"{t_label} {line_str or ''}".lower()
+
     min_age_m = None
     max_age_m = None
     min_wt = None
     max_wt = None
 
-    # Weight bounds:
-    m_wt_range = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*kg", t)
-    if m_wt_range:
-        min_wt = parse_swedish_float(m_wt_range.group(1))
-        max_wt = parse_swedish_float(m_wt_range.group(2))
-    else:
-        m_under_w = re.search(r"(?:under|mindre\s+än|upp\s+till|<)\s*(\d+(?:[.,]\d+)?)\s*kg", t)
-        if m_under_w:
-            max_wt = parse_swedish_float(m_under_w.group(1))
-        m_over_w = re.search(r"(?:från|över|>|minst)\s*(\d+(?:[.,]\d+)?)\s*kg", t)
-        if m_over_w:
-            min_wt = parse_swedish_float(m_over_w.group(1))
+    # 1. Weight bounds from label + line, falling back to med_title (e.g. "barn under 10 kg")
+    for wt_src in (t_full, t_med):
+        m_wt_range = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*kg", wt_src)
+        if m_wt_range:
+            min_wt = parse_swedish_float(m_wt_range.group(1))
+            max_wt = parse_swedish_float(m_wt_range.group(2))
+            break
+        m_under_w = re.search(r"(?:under|mindre\s+än|upp\s+till|<)\s*(\d+(?:[.,]\d+)?)\s*kg", wt_src)
+        m_over_w = re.search(r"(?:från|över|>|minst)\s*(\d+(?:[.,]\d+)?)\s*kg", wt_src)
+        if m_under_w or m_over_w:
+            if m_under_w:
+                max_wt = parse_swedish_float(m_under_w.group(1))
+            if m_over_w:
+                min_wt = parse_swedish_float(m_over_w.group(1))
+            break
+        m_under_g = re.search(r"under\s+(\d+)\s*g\b", wt_src)
+        if m_under_g and int(m_under_g.group(1)) <= 3000:
+            max_wt = int(m_under_g.group(1)) / 1000.0
+            break
 
-    # Age bounds:
-    m_my = re.search(r"(\d+(?:[.,]\d+)?)\s*mån(?:ader)?\s*-\s*(\d+(?:[.,]\d+)?)\s*år", t)
-    if m_my:
-        min_age_m = parse_swedish_float(m_my.group(1))
-        max_age_m = parse_swedish_float(m_my.group(2)) * 12.0
-    else:
-        m_mm = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*mån", t)
+    # 2. Age bounds
+    # Specific postnatal day ranges (e.g. "postnatal ålder 0 - 7 dagar", "nyfödda 0 - 14 dagar", "dag 7 - 28", "levnadsdag 1 - 7", "barn 29 - 42 dagar")
+    m_days_range = re.search(
+        r"(?:postnatal\s*ålder|nyfödda\s*,?|levnadsdag|barn)\s*(?:dag\s*)?(\d+)\s*-\s*(\d+)\s*(?:dagar|dygn)\b|"
+        r"\bdag\s+(\d+)\s*-\s*(\d+)\b(?=.*?(?:nyfödd|ml/kg/dygn|gestations))",
+        t_full,
+    )
+    if m_days_range:
+        d1 = float(m_days_range.group(1) or m_days_range.group(3))
+        d2 = float(m_days_range.group(2) or m_days_range.group(4))
+        min_age_m = round(d1 / 30.0, 3)
+        max_age_m = 0.95 if d2 == 28 else round(d2 / 30.0, 3)
+        return {"minAgeMonths": min_age_m, "maxAgeMonths": max_age_m, "minWeightKg": min_wt, "maxWeightKg": max_wt}
+
+    # "över X dagar - Y mån" (e.g. "Fullgångna över 7 dagar - 1 mån")
+    m_days_to_m = re.search(r"(?:över|från)\s+(\d+)\s*(?:dagar|dygn)\s*-\s*(\d+(?:[.,]\d+)?)\s*mån", t_full)
+    if m_days_to_m:
+        min_age_m = round(float(m_days_to_m.group(1)) / 30.0, 3)
+        max_age_m = parse_swedish_float(m_days_to_m.group(2))
+        return {"minAgeMonths": min_age_m, "maxAgeMonths": max_age_m, "minWeightKg": min_wt, "maxWeightKg": max_wt}
+
+    # "nyfödda ... från X dagars ålder" or "postnatal ålder från X dagar"
+    m_from_days = re.search(r"(?:från|över)\s+(\d+)(?:\s*-\s*\d+)?\s*(?:dagars\s+ålder|dagar|dygn)", t_full)
+    if m_from_days and ("nyfödd" in t_full or "postnatal" in t_full):
+        min_age_m = round(float(m_from_days.group(1)) / 30.0, 3)
+        max_age_m = 0.95
+        return {"minAgeMonths": min_age_m, "maxAgeMonths": max_age_m, "minWeightKg": min_wt, "maxWeightKg": max_wt}
+
+    # "Nyfödda och barn ..." combined ranges
+    if "nyfödda och barn" in t_full:
+        m_nb_u = re.search(r"(?:under|yngre\s+än)\s+(\d+(?:[.,]\d+)?)\s*(veckor|mån|år)", t_full)
+        if m_nb_u:
+            val = parse_swedish_float(m_nb_u.group(1))
+            u = m_nb_u.group(2)
+            max_age_m = round(val / 4.345, 2) if u.startswith("veck") else (val * 12.0 if u.startswith("år") else val)
+            return {"minAgeMonths": 0.0, "maxAgeMonths": max_age_m, "minWeightKg": min_wt, "maxWeightKg": max_wt}
+        m_nb_r = re.search(r"(\d+(?:[.,]\d+)?)\s*(mån|år)?\s*-\s*(\d+(?:[.,]\d+)?)\s*(mån|år)", t_full)
+        if m_nb_r:
+            v2 = parse_swedish_float(m_nb_r.group(3))
+            u2 = m_nb_r.group(4)
+            max_age_m = v2 * 12.0 if u2.startswith("år") else v2
+            return {"minAgeMonths": 0.0, "maxAgeMonths": max_age_m, "minWeightKg": min_wt, "maxWeightKg": max_wt}
+
+    # Postnatal weeks to months/years: e.g. "Barn 6 veckor (från GA v.44) - 11 mån" or "Barn 6 veckor - 18 år"
+    m_wk_range = re.search(r"barn\s+(\d+(?:[.,]\d+)?)\s*veckor(?:\s*\([^)]*\))?\s*-\s*(\d+(?:[.,]\d+)?)\s*(mån|år)", t_full)
+    if m_wk_range:
+        w1 = parse_swedish_float(m_wk_range.group(1))
+        v2 = parse_swedish_float(m_wk_range.group(2))
+        u2 = m_wk_range.group(3)
+        min_age_m = round(w1 / 4.345, 2)
+        max_age_m = v2 * 12.0 if u2.startswith("år") else v2
+        return {"minAgeMonths": min_age_m, "maxAgeMonths": max_age_m, "minWeightKg": min_wt, "maxWeightKg": max_wt}
+
+    # Standard month/year ranges in label/line (or med_title)
+    for age_src in (t_full, t_med):
+        m_my = re.search(r"(\d+(?:[.,]\d+)?)\s*mån(?:ader)?\s*-\s*(\d+(?:[.,]\d+)?)\s*år", age_src)
+        if m_my:
+            min_age_m = parse_swedish_float(m_my.group(1))
+            max_age_m = parse_swedish_float(m_my.group(2)) * 12.0
+            break
+        if re.search(r"nyfödda[^:]*-\s*1\s*mån", age_src):
+            min_age_m = 0.0
+            max_age_m = 1.0
+            break
+        m_mm = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*mån", age_src)
         if m_mm:
             min_age_m = parse_swedish_float(m_mm.group(1))
             max_age_m = parse_swedish_float(m_mm.group(2))
-        else:
-            m_yy = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*år", t)
-            if m_yy:
-                min_age_m = parse_swedish_float(m_yy.group(1)) * 12.0
-                max_age_m = parse_swedish_float(m_yy.group(2)) * 12.0
-            else:
-                m_oy = re.search(r"(?:från|över)\s+(\d+(?:[.,]\d+)?)\s*(år|mån)", t)
-                if m_oy:
-                    val = parse_swedish_float(m_oy.group(1))
-                    min_age_m = val * 12.0 if m_oy.group(2).startswith("år") else val
-                    max_age_m = 216.0
-                m_uy = re.search(r"(?:under|yngre\s+än)\s+(\d+(?:[.,]\d+)?)\s*(år|mån)", t)
-                if m_uy:
-                    val = parse_swedish_float(m_uy.group(1))
-                    if min_age_m is None:
-                        min_age_m = 0.0
-                    max_age_m = val * 12.0 if m_uy.group(2).startswith("år") else val
+            break
+        m_yy = re.search(r"(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)\s*år", age_src)
+        if m_yy:
+            min_age_m = parse_swedish_float(m_yy.group(1)) * 12.0
+            max_age_m = parse_swedish_float(m_yy.group(2)) * 12.0
+            break
+        m_oy = re.search(r"(?:från|över|äldre\s+än)\s+(\d+(?:[.,]\d+)?)\s*(år|mån)", age_src)
+        m_uy = re.search(r"(?:under|yngre\s+än|upp\s+till)\s+(\d+(?:[.,]\d+)?)\s*(år|mån)", age_src)
+        if m_oy or m_uy:
+            if m_oy:
+                val = parse_swedish_float(m_oy.group(1))
+                min_age_m = val * 12.0 if m_oy.group(2).startswith("år") else val
+                max_age_m = 216.0
+            if m_uy:
+                val = parse_swedish_float(m_uy.group(1))
+                if min_age_m is None:
+                    min_age_m = 0.0
+                max_age_m = val * 12.0 if m_uy.group(2).startswith("år") else val
+            break
 
     if min_age_m is None and max_age_m is None:
-        if any(w in t for w in ("nyfödd", "prematur", "gestationsålder", "ga vecka", "från ga ", "postnatal ålder", "fullgångna")):
+        if (
+            any(w in t_full for w in ("nyfödd", "prematur", "gestationsålder", "gestationsvecka", "ga vecka", "från ga ", "ga tidigare", "postnatal ålder", "fullgångna", "pmå"))
+            or any(w in t_ind for w in ("nyfödd", "neonatal", "prematur"))
+            or "nyfödd" in t_med
+        ):
             min_age_m = 0.0
-            max_age_m = 1.0
+            max_age_m = 0.95  # Strictly newborn (0 - 28 days / < 1 mån)
 
     return {
         "minAgeMonths": min_age_m,
@@ -219,7 +294,7 @@ def parse_age_weight_bounds(text_str: str):
     }
 
 
-def extract_regimens_from_lines(lines, indication_title=""):
+def extract_regimens_from_lines(lines, indication_title="", med_title=""):
     """
     Extract structured weight-based, Holliday-Segar, and max-capped dosing regimens from text lines under an indication.
     """
@@ -548,8 +623,7 @@ def extract_regimens_from_lines(lines, indication_title=""):
                         elif fix_fmax:
                             prev_r["maxDayVal"] = fix_max * fix_fmax
                             prev_r["maxDayUnit"] = fix_unit
-                    if wt_thresh and not prev_r.get("maxWeightKg"):
-                        prev_r["maxWeightKg"] = wt_thresh
+                    prev_r["absorbedUpperCap"] = True
                 continue
 
         # Look for weight-based dosing patterns:
@@ -647,6 +721,15 @@ def extract_regimens_from_lines(lines, indication_title=""):
             if prefix.lower() in ("alt", "alt.", "alternativt", "eller"):
                 prefix = "Alternativt"
 
+            # If this line's prefix starts its own age group (e.g. "Barn 1 mån - 18 år" after a "Nyfödda" block),
+            # reset any stale age_context / step_context from the earlier age group!
+            if idx_vm == 0 and prefix:
+                if re.match(r"^(?:GA\s+vecka|Från\s+GA|Fullgångna|Prematur|Nyfödda|Barn|Ungdomar|Vuxna)\b", prefix, re.IGNORECASE):
+                    age_context = ""
+                    step_context = ""
+                elif re.match(r"^(?:Postnatal\s*ålder|Levnadsdag)\b", prefix, re.IGNORECASE):
+                    step_context = ""
+
             parts = []
             if age_context and (not prefix or age_context.lower() not in prefix.lower()):
                 parts.append(age_context)
@@ -656,7 +739,7 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 parts.append(prefix)
 
             label = " • ".join(parts) if parts else (indication_title or "Standarddos")
-            bounds = parse_age_weight_bounds(f"{label} {line_norm}")
+            bounds = parse_age_weight_bounds(label, line_norm, indication_title, med_title)
 
             regimens.append({
                 "label": label,
@@ -685,7 +768,15 @@ def extract_regimens_from_lines(lines, indication_title=""):
                 "maxWeightKg": bounds["maxWeightKg"],
             })
 
-    # Post-pass: if a later regimen in the same indication has a maxDoseVal/maxDayVal and earlier ones (e.g. Nyfödda / yngre barn)
+    # Post-pass 1: Bridge age gap between 1.0 month (e.g. "Fullgångna över 7 dagar - 1 mån") and 2.0 months (e.g. "Barn 2 mån - 18 år")
+    has_start_at_2m = any(r.get("minAgeMonths") == 2.0 for r in regimens)
+    has_between_1_and_2 = any(r.get("minAgeMonths") is not None and 1.0 <= r["minAgeMonths"] < 2.0 for r in regimens)
+    if has_start_at_2m and not has_between_1_and_2:
+        for r in regimens:
+            if r.get("maxAgeMonths") == 1.0:
+                r["maxAgeMonths"] = 1.99
+
+    # Post-pass 2: if a later regimen in the same indication has a maxDoseVal/maxDayVal and earlier ones (e.g. Nyfödda / yngre barn)
     # have the exact same or lower dose rate without a cap, propagate the cap so a 60 kg weight never exceeds adult max dose on any row.
     if len(regimens) > 1:
         known_max_dose = next(((r["maxDoseVal"], r["maxDoseUnit"]) for r in regimens if r.get("maxDoseVal")), (None, None))
@@ -997,7 +1088,7 @@ def parse_single_pdf(item):
 
     # Extract structured regimens for each indication
     for ind in indications:
-        ind["regimens"] = extract_regimens_from_lines(ind["lines"], ind["title"])
+        ind["regimens"] = extract_regimens_from_lines(ind["lines"], ind["title"], title)
 
     # Also check if any line in indications specifies concentration (e.g. "slutkoncentration 50 mg/mL")
     # Only do this if the title is not explicitly a solid dosage form (tablets/capsules/suppositories)
